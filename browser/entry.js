@@ -1,0 +1,44 @@
+// 小工具引擎入口：生辰 → 数据交接包（xuanji.handoff/0.1），和服务端 /v1/profile 同一套拼装（engine/src/core.js），
+// 只是八字不走排盘服务，改在本机调同一份 paipan()（engine/paipan，AGPL）。全程不联网。
+import core from '../engine/src/core.js';
+import transits from '../engine/src/transits.js';
+import { paipan, InputError as PaipanInputError } from '../engine/paipan/paipan.js';
+
+const { parseInput, natalOf, assemble, InputError } = core;
+const hhmm = (inp) => (inp.h == null ? null : `${String(inp.h).padStart(2, '0')}:${String(inp.mi).padStart(2, '0')}`);
+
+// 同 profile.js bazi()：先用用户写的城市；排盘认不出时用我们解析出的全称再试一次。走一遍 JSON 往返，和服务端收到的回包一模一样。
+function baziLocal(inp) {
+  const call = (city) => {
+    try { return { ok: true, body: JSON.parse(JSON.stringify(paipan({ date: inp.date, time: hhmm(inp), city, gender: inp.gender }))) }; }
+    catch (e) { if (e instanceof PaipanInputError) return { ok: false, body: { error: { code: e.code, message: e.message } } }; throw e; }
+  };
+  let r = call(inp.city);
+  if (r.body && r.body.error && r.body.error.code === 'LOCATION_NOT_FOUND' && inp.place && inp.place.name && inp.place.name !== inp.city) r = call(inp.place.name);
+  return r.ok ? { status: 'ok', ...r.body } : { status: 'error', http: 400, error: r.body.error };
+}
+
+/* global XJ_VERSION */
+function compute(body, { now = new Date(), lite = false } = {}) {
+  const inp = parseInput(body);
+  const N = natalOf(inp);
+  const bz = baziLocal(inp);
+  return assemble(inp, N, bz, { version: XJ_VERSION, lite, now });
+}
+
+// 慢星星历预算表（scripts/ephem_table.mjs 生成）：把同一批 UTC 零点取样的位置先填进缓存，手机上不用现算
+function loadEphem(tab) {
+  if (!tab) return 0;
+  let n = 0;
+  for (const [m, b64] of Object.entries(tab.movers)) {
+    const bin = atob(b64), len = bin.length, k = len / 8, u8 = new Uint8Array(len);
+    // planes8：第 j 个字节平面是所有数的第 j 个字节（scripts/ephem_table.mjs），还原回 Float64 原值
+    if (tab.enc === 'planes8') { for (let j = 0; j < 8; j++) for (let i = 0; i < k; i++) u8[i * 8 + j] = bin.charCodeAt(j * k + i); }
+    else for (let i = 0; i < len; i++) u8[i] = bin.charCodeAt(i);
+    transits.ephemFill(m, tab.day0, new Float64Array(u8.buffer));
+    n += k;
+  }
+  return n;
+}
+
+window.XJ = { compute, loadEphem, InputError, version: XJ_VERSION };

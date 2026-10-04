@@ -1,0 +1,17 @@
+{
+  "name": "xuanji-astro-minitool",
+  "version": "0.1.0",
+  "private": true,
+  "description": "玄玑 xuanji-astro 小红书小工具：生辰在本机离线排盘（西盘＋八字＋应期），出时间可信度、身强身弱、过去节点验证与结构数据",
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "sync": "scripts/sync_engine.sh",
+    "build": "node scripts/build.mjs"
+  },
+  "dependencies": {
+    "mingyu-core": "0.3.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.1"
+  }
+}
