@@ -66,10 +66,26 @@ const FUNC_HOUSE={Ni:[12,9,8],Ne:[9,11,5],Ti:[3,8,6],Te:[10,6,2],Fi:[12,4,5],Fe:
 const MERC_TF={风:1.0,火:0.6,土:0.3,水:-1.0};   // 水星落座→T倾向
 const VENUS_TF={风:0.5,土:0.4,火:-0.5,水:-0.8}; // 金星落座→T倾向(辅·权重0.5)
 
+// ═══ 上升压线对半算（2026-10-06 拍板） ═══
+// 上升离换座 2 度以内（同 Skill 接口 boundary 的「压线」口径 d<2||d>28）＝出生时间差几分钟上升就换座。
+// 这时上升那 3 分不整颗记给当前星座：当前星座、相邻星座各记 1.5
+//   （相邻两座阴阳必相反 ⇒ E 轴里上升这一项正好抵消；N 轴取两座的平均）。
+// 只动通道 B 的元素账，其余一字不改。拿不到上升度数（只喂星座名的旧喂法）照旧整颗记。
+// 验证（两万合成盘＋真值盘）：13.4% 的盘压线、4.7% 换型（只动 E/N 两个字母）、16 型分布不变 ⇒ CAL_V2 不重拟；
+//   真值盘和验真套件全不变（其中一张验真盘本身压线，E 9→6，型不变）。
+// 起因与全部数据：功能包/照见/底色_三颗外行星与摇摆带_实验_20261006/（不在本仓库）
+const ASC_NEAR_DEG=2;
+function ascShares(a){
+  if(typeof a==="string") return [[a,3]];
+  const s=a.sign, i=SIGNS.indexOf(s);   // 盘里没有上升时照旧在这里抛错，由调用方接住
+  const d=(typeof a.deg==="number")?a.deg+(a.min||0)/60:null;
+  if(i<0||d===null||!(d<ASC_NEAR_DEG||d>30-ASC_NEAR_DEG)) return [[s,3]];
+  return [[s,1.5],[SIGNS[(i+(d<ASC_NEAR_DEG?11:1))%12],1.5]];
+}
 function bAxes(m,asc){
   const e={火:0,土:0,风:0,水:0}, mo={基本:0,固定:0,变动:0};
   for(const p in PW_E){ if(m[p]){const s=m[p][0]; e[SIGN_ELEM[s]]+=PW_E[p]; mo[SIGN_MODE[s]]+=PW_E[p];} }
-  e[SIGN_ELEM[asc]]+=3;
+  ascShares(asc).forEach(([s,w])=>{e[SIGN_ELEM[s]]+=w;});
   const E=(e.火+e.风)-(e.土+e.水);
   const N=(e.风+0.5*e.火)-(e.土+0.3*e.水);
   const me=m["水星"]?SIGN_ELEM[m["水星"][0]]:"土";
@@ -130,7 +146,7 @@ const CAL_V2={
 
 function deriveBaseColor(chart){
   const m=bodyMap(chart);
-  const asc=chart.angles.asc.sign;
+  const asc=chart.angles.asc;   // 整个对象（带度数）：压线对半算要用
   const {ax,e}=bAxes(m,asc);
   // v2：通道B吃校准轴。原始 ax 原样返回(_Traw 摇摆判据不受影响)。
   const axc={E:ax.E-CAL_V2.means.E, N:ax.N-CAL_V2.means.N,

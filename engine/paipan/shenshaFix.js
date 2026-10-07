@@ -26,6 +26,11 @@ const NAYIN_CHANGSHENG = { 金: '巳', 木: '亥', 水: '申', 土: '申', 火: 
 
 const FU_XING = { 甲: ['寅', '子'], 丙: ['寅', '子'], 乙: ['丑', '卯'], 癸: ['丑', '卯'], 戊: ['申'], 己: ['未'], 丁: ['亥'], 庚: ['午'], 辛: ['巳'], 壬: ['辰'] };
 
+// 上游修正三（10-06）：羊刃只认阳干——甲刃卯、丙戊刃午、庚刃酉、壬刃子（日干的帝旺位）。
+// 引擎对阴干也按帝旺位标羊刃（乙寅、丁己巳、辛申、癸亥）；阴干那一位只是帝旺（长生十二位里本来就标着），不出「羊刃」。
+// mingyu 自己的月刃格注释也写「阴干无真正羊刃」。只按日干查，跟引擎一致；运上（liupan）同一口径。
+const YIN_GAN = new Set(['乙', '丁', '己', '辛', '癸']);
+
 const setHit = (pillar, name, hit) => {
   const has = pillar.shensha.includes(name);
   if (hit && !has) pillar.shensha.push(name);
@@ -42,6 +47,7 @@ export function fixShenshaTables(chart, classicalRaw = null) {
     const yg = chart.pillars.year.gan, dg = chart.pillars.day.gan;
     setHit(pillar, '福星贵人', FU_XING[yg].includes(pillar.zhi) || FU_XING[dg].includes(pillar.zhi));
     setHit(pillar, '天乙贵人', TIAN_YI[yg].includes(pillar.zhi) || TIAN_YI[dg].includes(pillar.zhi));
+    if (YIN_GAN.has(dg)) setHit(pillar, '羊刃', false);
     if (classicalRaw) setHit(pillar, '德秀贵人', (classicalRaw.shensha?.[key] ?? []).includes('德秀贵人'));
     const dayNayinEl = String(chart.pillars.day.nayin ?? '').slice(-1);
     if (key !== 'day' && NAYIN_CHANGSHENG[dayNayinEl] === pillar.zhi) setHit(pillar, '学堂', true);

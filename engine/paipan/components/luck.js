@@ -37,25 +37,38 @@ function scored(ganZhi, dayGan, useful) {
   return { score, tier: score === null ? null : tierOf(score, LUCK_TIERS) };
 }
 
-export function luckCycles(raw, dayGan, useful) {
+// 岁数口径（10-06 定）：全站统一周岁，虚岁不进任何用户可见处。
+// 引擎的 age／startAge／endAge 是虚岁（年份减出生年再加一），留着只为兼容，界面一律用 *Full 和 label：
+//   大运卡写「起运周岁＋起止年份」，例「3 周岁起运 · 丙辰（1997–2007）」，不写整数区间；起止年份写到下一步交运那年。
+//   起运周岁取引擎起运原话「出生后 N 年……起运」的 N；以后每步加十。流年的周岁＝年份减出生年（那一年过完生日的岁数）。
+const startYearsOf = (info) => { const m = /出生后\s*(\d+)\s*年/.exec(info || ''); return m ? Number(m[1]) : null; };
+
+export function luckCycles(raw, dayGan, useful, birthYear = null) {
   const cycles = (raw.luckInfo?.cycles ?? []).filter((c) => !c.isXiaoyun);
+  const startInfo = raw.luckInfo?.startInfo ?? '', n0 = startYearsOf(startInfo);
   return {
-    startInfo: raw.luckInfo?.startInfo ?? '',
-    cycles: cycles.map((c, i) => ({
-      seq: i + 1,
-      ganZhi: c.ganZhi,
-      startAge: c.age,
-      endAge: c.age + 9,
-      startYear: c.year,
-      endYear: c.year + 9,
-      ...scored(c.ganZhi, dayGan, useful),
-      // 引擎把交运那一年同时列在前后两步里（一步 11 年）；只留本步起止年之间的十年，不跟下一步重叠
-      years: (c.years ?? []).filter((y) => y.year >= c.year && y.year <= c.year + 9).map((y) => ({
-        year: y.year,
-        age: y.age,
-        ganZhi: y.ganZhi,
-        ...scored(y.ganZhi, dayGan, useful),
-      })),
-    })),
+    startInfo,
+    cycles: cycles.map((c, i) => {
+      const startAgeFull = n0 === null ? null : n0 + 10 * i;
+      return {
+        seq: i + 1,
+        ganZhi: c.ganZhi,
+        startAge: c.age,
+        endAge: c.age + 9,
+        startYear: c.year,
+        endYear: c.year + 9,
+        startAgeFull,
+        label: `${startAgeFull === null ? '' : `${startAgeFull} 周岁${i === 0 ? '起运' : '交运'} · `}${c.ganZhi}（${c.year}–${c.year + 10}）`,
+        ...scored(c.ganZhi, dayGan, useful),
+        // 引擎把交运那一年同时列在前后两步里（一步 11 年）；只留本步起止年之间的十年，不跟下一步重叠
+        years: (c.years ?? []).filter((y) => y.year >= c.year && y.year <= c.year + 9).map((y) => ({
+          year: y.year,
+          age: y.age,
+          ageFull: birthYear === null ? null : y.year - birthYear,
+          ganZhi: y.ganZhi,
+          ...scored(y.ganZhi, dayGan, useful),
+        })),
+      };
+    }),
   };
 }

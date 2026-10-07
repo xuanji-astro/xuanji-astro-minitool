@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const API = process.argv[2] || path.join(ROOT, '..', 'xuanji-profile-api');
 const require = createRequire(import.meta.url);
-const { parseInput, natalOf, assemble } = require(path.join(API, 'src', 'core.js'));
+const { parseInput, natalOf, autoSideOf, assemble } = require(path.join(API, 'src', 'core.js'));
 const { paipan, InputError } = await import(path.join(API, '..', 'xuanji-paipan', 'src', 'paipan.js'))   // engine/paipan 是它的原样拷贝（SOURCES.txt 核 sha）;
 const { VERSION } = require(path.join(API, 'src', 'profile.js'));
 
@@ -24,16 +24,23 @@ for (let i = 0; i < 24; i++) {
   cases.push({ date, time, city: CITIES[i], gender: rnd() < 0.5 ? 'female' : 'male', time_source: SRC[i % 4], time_precision: PRE[(i * 3) % 4] });
 }
 const NOW = '2026-10-02T04:00:00.000Z';
-const out = cases.map((body) => {
+const build = (body) => {
   const inp = parseInput(body), N = natalOf(inp);
   const hh = inp.h == null ? null : `${pad(inp.h)}:${pad(inp.mi)}`;
-  const call = (city) => { try { return { ok: true, body: JSON.parse(JSON.stringify(paipan({ date: inp.date, time: hh, city, gender: inp.gender }))) }; } catch (e) { if (e instanceof InputError) return { ok: false, body: { error: { code: e.code, message: e.message } } }; throw e; } };
-  let r = call(inp.city);
-  if (r.body?.error?.code === 'LOCATION_NOT_FOUND' && inp.place?.name && inp.place.name !== inp.city) r = call(inp.place.name);
-  const bz = r.ok ? { status: 'ok', ...r.body } : { status: 'error', http: 400, error: r.body.error };
-  const o = assemble(inp, N, bz, { version: VERSION, now: new Date(NOW) });
+  const call = (city, strength) => { try { return { ok: true, body: JSON.parse(JSON.stringify(paipan({ date: inp.date, time: hh, city, gender: inp.gender, ...(strength ? { strength } : {}) }))) }; } catch (e) { if (e instanceof InputError) return { ok: false, body: { error: { code: e.code, message: e.message } } }; throw e; } };
+  const one = (x) => { let r = call(inp.city, x); if (r.body?.error?.code === 'LOCATION_NOT_FOUND' && inp.place?.name && inp.place.name !== inp.city) r = call(inp.place.name, x); return r.ok ? { status: 'ok', ...r.body } : { status: 'error', http: 400, error: r.body.error }; };
+  let bz = one(inp.strength);
+  const auto = autoSideOf(inp, bz, N);   // 同 browser/entry.js：没核过、结论跟引擎档位不同，带结论再排一次
+  if (auto) { const b2 = one(auto); if (b2.status === 'ok') bz = b2; }
+  const o = assemble(inp, N, bz, { version: VERSION, now: new Date(NOW), auto });
   const j = JSON.stringify(o);
   return { input: body, sha: crypto.createHash('sha256').update(j).digest('hex'), out: o };
-});
+};
+const out = cases.map(build);
+// 定案跟引擎相反（用户核过、翻了过来）：取前两张能核的盘各加一份带 strength 的，喜忌和时间线按定案重算
+for (const c of out.filter((c) => c.out.method.bazi?.strength?.vote?.feel && !c.out.bazi.bazi.pattern.isSpecial).slice(0, 2)) {
+  const eng = /强|旺/.test(c.out.bazi.bazi.strength) ? '强' : /弱|衰/.test(c.out.bazi.bazi.strength) ? '弱' : '强';
+  out.push(build({ ...c.input, strength: eng === '强' ? '弱' : '强' }));
+}
 fs.writeFileSync(path.join(ROOT, 'test', 'fixtures', 'expected.json'), JSON.stringify({ now: NOW, version: VERSION, cases: out }));
 console.log('fixtures', out.length, 'bazi ok', out.filter((c) => c.out.bazi.status === 'ok').length, 'past_candidates', out.map((c) => (c.out.method.timing?.past_candidates || []).length).join(','));

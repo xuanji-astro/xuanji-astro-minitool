@@ -2,15 +2,17 @@
 // 只是八字不走排盘服务，改在本机调同一份 paipan()（engine/paipan，AGPL）。全程不联网。
 import core from '../engine/src/core.js';
 import transits from '../engine/src/transits.js';
+import feel from '../engine/src/feel.js';   // 用你的经历核一次：计分在本机（回答不出这台手机）
 import { paipan, InputError as PaipanInputError } from '../engine/paipan/paipan.js';
+import { candidate as rectCandidate, plan as rectPlan, score as rectScore, weight as rectWeight } from '../engine/skill/rectify.mjs';   // 定时辰：Skill 同一份打分脚本
 
-const { parseInput, natalOf, assemble, InputError } = core;
+const { parseInput, natalOf, autoSideOf, assemble, InputError } = core;
 const hhmm = (inp) => (inp.h == null ? null : `${String(inp.h).padStart(2, '0')}:${String(inp.mi).padStart(2, '0')}`);
 
 // 同 profile.js bazi()：先用用户写的城市；排盘认不出时用我们解析出的全称再试一次。走一遍 JSON 往返，和服务端收到的回包一模一样。
 function baziLocal(inp) {
   const call = (city) => {
-    try { return { ok: true, body: JSON.parse(JSON.stringify(paipan({ date: inp.date, time: hhmm(inp), city, gender: inp.gender }))) }; }
+    try { return { ok: true, body: JSON.parse(JSON.stringify(paipan({ date: inp.date, time: hhmm(inp), city, gender: inp.gender, ...(inp.strength ? { strength: inp.strength } : {}) }))) }; }
     catch (e) { if (e instanceof PaipanInputError) return { ok: false, body: { error: { code: e.code, message: e.message } } }; throw e; }
   };
   let r = call(inp.city);
@@ -22,8 +24,11 @@ function baziLocal(inp) {
 function compute(body, { now = new Date(), lite = false } = {}) {
   const inp = parseInput(body);
   const N = natalOf(inp);
-  const bz = baziLocal(inp);
-  return assemble(inp, N, bz, { version: XJ_VERSION, lite, now });
+  let bz = baziLocal(inp);
+  // 同 profile.js：没核过、几种判法的结论跟引擎档位不同，带结论再排一次（10-06 定）
+  const auto = autoSideOf(inp, bz, N);
+  if (auto) { const b2 = baziLocal({ ...inp, strength: auto }); if (b2.status === 'ok') bz = b2; }
+  return assemble(inp, N, bz, { version: XJ_VERSION, lite, now, auto });
 }
 
 // 慢星星历预算表（scripts/ephem_table.mjs 生成）：把同一批 UTC 零点取样的位置先填进缓存，手机上不用现算
@@ -41,4 +46,4 @@ function loadEphem(tab) {
   return n;
 }
 
-window.XJ = { compute, loadEphem, InputError, version: XJ_VERSION };
+window.XJ = { compute, loadEphem, feelScore: feel.feelScore, feelItem: feel.yearItem, rect: { candidate: rectCandidate, plan: rectPlan, score: rectScore, weight: rectWeight }, InputError, version: XJ_VERSION };

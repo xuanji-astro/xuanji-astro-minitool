@@ -32,7 +32,10 @@ function baziMethod(bz, birth) {
     strength: { level: b.strength, type: c.wuxingRing.type, basis: b.strengthBasis,
       basis_words: b.strengthBasis ? [BASIS_WORDS.month[b.strengthBasis.month], BASIS_WORDS.root[b.strengthBasis.root], BASIS_WORDS.momentum[b.strengthBasis.momentum]].filter(Boolean) : [] },
     useful: { favorable: fav, unfavorable: b.usefulGods.unfavorableWuxing, useful: b.usefulGods.useful, avoid: b.usefulGods.avoid },
-    luck: b.luck.cycles.map((cy, i) => ({ seq: cy.seq, gan_zhi: cy.ganZhi, start_year: cy.startYear, end_year: cy.endYear, start_age: cy.startAge, end_age: cy.endAge,
+    // 岁数统一周岁（10-06）：排盘服务给了 startAgeFull（起运周岁）和 label（「3 周岁起运 · 丙辰（1997–2007）」）就用它；
+    // 老版排盘服务只有虚岁，照旧传，label 为空
+    luck: b.luck.cycles.map((cy, i) => ({ seq: cy.seq, gan_zhi: cy.ganZhi, start_year: cy.startYear, end_year: cy.endYear,
+      start_age: cy.startAgeFull ?? cy.startAge, end_age: cy.startAgeFull != null ? cy.startAgeFull + 10 : cy.endAge, age_kind: cy.startAgeFull != null ? '周岁' : '虚岁', label: cy.label || null,
       tier: cy.tier, tier_name: TIER_NAME[cy.tier] ?? null, title: words[i] ? words[i].title : null, line: words[i] ? words[i].line : null })),
     shensha: {
       dimensions: c.shenshaPanel.dimensions.map((d) => ({ key: d.key, name: d.name, score: d.score, tier: d.tier, shensha: d.shensha, words: (sw.dims[d.key] || [])[d.tier] ?? null })),

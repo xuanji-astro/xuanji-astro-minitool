@@ -10,9 +10,51 @@ import { extras } from './extras.js';
 const TOOL = 'xuanji-astro-minitool 0.1.0';
 const app = document.getElementById('app');
 const bar = document.getElementById('bar');
-const S = { input: null, out: null, nodes: [], ans: {}, id: null, tab: 'cover', nowY: new Date().getFullYear() };
+const S = { input: null, base: null, out: null, side: null, nodes: [], ans: {}, feel: [], feelSkip: false, feelLog: [], rect: null, rt: null, id: null, tab: 'cover', nowY: new Date().getFullYear() };
 let X_ = { out: null, x: null };
 const X = () => (X_.out === S.out ? X_.x : (X_ = { out: S.out, x: extras(S.out) }).x);   // 盘面扩展：每张盘只算一次
+// 用你的经历核一次：计分交给引擎（回答只在这台手机上）；身强身弱一律从 ST() 取，定下来的高于三种判法
+const VOTE = () => (S.out.method.bazi && S.out.method.bazi.strength ? S.out.method.bazi.strength.vote : null);
+const DM = () => (S.out.bazi.status === 'ok' ? S.out.bazi.bazi.pillars.day.gan : null);
+const FS = () => { const v = VOTE(); return v && v.feel && v.feel.enough && S.feel.length && DM() ? window.XJ.feelScore(DM(), S.feel, v.feel) : null; };
+// 定时辰（Skill 同一份打分脚本）：定在隔壁时辰（b）以后，整盘改用交界另一侧那张（S.rect.request），身强身弱也按新盘重判
+const RECT_DONE = () => !!(S.rect && (S.rect.result === 'a' || S.rect.result === 'b'));
+const EFF = () => (S.rect && S.rect.result === 'b' ? S.rect.request : S.input);
+const HOUR = () => (RECT_DONE() ? S.rect.hours[S.rect.result] : null);
+const rectSkip = () => (RECT_DONE() ? new Set([...S.rect.events.map((e) => e.year), ...S.rect.asked]) : null);
+const nodesOf = (o) => D.pickNodes(o, 3, rectSkip());   // 定下来以后，过去节点不拿你说过、被问过的年份
+function useRect(rec) {
+  S.rect = (rec && rec.rect) || null;
+  if (S.rect && S.rect.result === 'b') { S.base = S.out = window.XJ.compute(S.rect.request); S.side = null; }
+  S.nodes = nodesOf(S.out);
+}
+const RC = () => { if (S.rect && S.rect.result !== 'uncertain') return null; try { return window.XJ.rect.candidate(S.base, S.input); } catch (e) { return null; } };
+const HELD = () => { const l = S.feelLog.filter((x) => x.dm === DM()); return l.length ? l[l.length - 1] : null; };
+const ST = () => D.strength(S.out, FS(), HELD(), S.base);
+function loadFeel(rec) {
+  S.feel = (rec && rec.feel) || store.feelOfDate(S.input.date, S.id) || []; S.feelSkip = !!(rec && rec.feelSkip);
+  S.feelLog = (rec && Array.isArray(rec.feelLog) && rec.feelLog) || [];
+  if (S.feel.length && !(rec && rec.feel)) store.setFeel(S.id, S.feel);
+  settle();
+}
+// 定案（10-05 定）：身强身弱的定案是喜忌、大运、时间线的唯一输入。核出来的定案跟排盘引擎方向相反时，整盘带着定案重算（S.out），原盘留在 S.base；
+// 出题按原盘（引擎保证），翻过来以后再核题目不变。加问、挂起时沿用上一次的定案，证据够了才改判；每次改判记一条（只在这台手机，不展示）。
+// 用户先看到的那一边：几种判法的结论有方向就是结论（没核过时整盘已按它排，10-06 定），否则是引擎的底子（中和的喜忌底子同身强）
+const shownSide = (o) => {
+  const v = o.method.bazi && o.method.bazi.strength && o.method.bazi.strength.vote, s = v && v.verdict.side;
+  if (s === '强' || s === '弱') return s;
+  const lv = o.bazi.status === 'ok' ? o.bazi.bazi.strength || '' : ''; return /强|旺/.test(lv) ? '强' : /弱|衰/.test(lv) ? '弱' : '强';
+};
+function settle() {
+  const fs = FS(), last = HELD();
+  if (fs && fs.status === '定案' && (!last || last.side !== fs.decided)) {
+    S.feelLog = [...S.feelLog, { t: Date.now(), dm: DM(), side: fs.decided, from: last ? last.side : shownSide(S.base), asked: fs.asked }];
+    store.setFeelLog(S.id, S.feelLog);
+  }
+  const cur = HELD(), want = cur && cur.side !== shownSide(S.base) ? cur.side : null;
+  if (want === S.side) return;
+  S.out = want ? window.XJ.compute({ ...EFF(), strength: want }) : S.base; S.side = want; S.nodes = nodesOf(S.out);
+}
 const TABS = [['cover', '封面'], ['verify', '验证'], ['chart', '星盘'], ['bazi', '八字'], ['time', '时间线']];
 const TIER = [['顺风', '#c40018', '#fff'], ['偏顺', '#fbe9eb', '#9a0013'], ['平稳', '#efeeec', '#555'], ['偏紧', '#dcd9d5', '#2a2a2a'], ['逆风', '#111', '#fff']];   // 档位同报告，颜色红白黑
 const EL = { 木: '#3f9b6b', 火: '#e0623f', 土: '#c99636', 金: '#8e97a8', 水: '#4a7fd6' };   // 同报告
@@ -203,11 +245,12 @@ async function run(input, formState) {
   try {
     await engineReady; await new Promise((r) => setTimeout(r, 30));
     const out = window.XJ.compute(input);
-    S.input = input; S.out = out; S.id = D.chartId(input); S.nodes = D.pickNodes(out); S.tab = 'cover';
+    S.input = input; S.base = S.out = out; S.side = null; S.id = D.chartId(input); S.nodes = D.pickNodes(out); S.tab = 'cover';
     const old = store.get(S.id); S.ans = (old && old.answers) || {};
     const w = out.method.west;
     store.put({ id: S.id, input, form: formState, place: out.birth.place ? out.birth.place.name : input.city, answers: S.ans, at: Date.now(),
       tags: { base: out.astro_mbti && out.astro_mbti.base_type, asc: w && w.big3 && w.big3.asc ? w.big3.asc.sign : null } });
+    useRect(store.get(S.id)); loadFeel(store.get(S.id));
     if (still()) swap('result');
   } catch (e) { if (still()) swap('fail', e, formState); }
 }
@@ -217,7 +260,7 @@ function reopen(id) {
   const still = () => depth === tok && NAV[depth][0] === 'busy';
   setTimeout(async () => {
     try {
-      await engineReady; S.input = r.input; S.out = window.XJ.compute(r.input); S.id = id; S.nodes = D.pickNodes(S.out); S.ans = r.answers || {}; S.tab = 'cover';
+      await engineReady; S.input = r.input; S.base = S.out = window.XJ.compute(r.input); S.side = null; S.id = id; S.nodes = D.pickNodes(S.out); S.ans = r.answers || {}; useRect(r); loadFeel(r); S.tab = 'cover';
       if (still()) swap('result');
     } catch (e) { if (still()) swap('fail', e, r.form); }
   }, 60);
@@ -231,7 +274,7 @@ function fail(e, formState) {
 // ── 结果页：顶部出生信息＋五个标签 ──
 function result() {
   setBar({});
-  const o = S.out, r = D.reliability(o), b = o.birth, w = o.method.west;
+  const o = S.out, r = D.reliability(o, RECT_DONE()), b = o.birth, w = o.method.west;
   const where = r.place ? shortPlace(r.place.name) : b.city;
   const body = h('div', { class: 'tabbody' });
   const tabs = h('div', { class: 'tabs', role: 'tablist' });
@@ -240,8 +283,10 @@ function result() {
     body.replaceChildren(TAB[S.tab](), endLinks());
   };
   const top = h('div', { class: 'rhead' },
-    h('div', { class: 'rh-t', text: `${where} · ${b.date}${b.time ? ' ' + b.time : ''}` }),
-    h('div', { class: 'rh-s' }, w && w.big3 && w.big3.asc ? `上升 ${w.big3.asc.sign}座 · ` : '', `有效精度 ${b.time ? PREC[b.time_precision] || '未标注' : '时辰不详'} · 可信度 `, h('b', { class: 'verdict-' + r.level, text: { ok: '可放心使用', sensitive: '边界敏感', check: '建议校时' }[r.level] })));
+    // 定时辰定下来以后只说定在哪个时辰，不报几点几分（交界另一侧那个时间只是代表）
+    h('div', { class: 'rh-t', text: RECT_DONE() ? `${where} · ${S.input.date} · ${HOUR()}` : `${where} · ${b.date}${b.time ? ' ' + b.time : ''}` }),
+    RECT_DONE() ? h('div', { class: 'rh-s' }, w && w.big3 && w.big3.asc ? `上升 ${w.big3.asc.sign}座 · ` : '', '时辰 你亲手定的 · 可信度 ', h('b', { class: 'verdict-ok', text: '已校准' }))
+      : h('div', { class: 'rh-s' }, w && w.big3 && w.big3.asc ? `上升 ${w.big3.asc.sign}座 · ` : '', `有效精度 ${b.time ? PREC[b.time_precision] || '未标注' : '时辰不详'} · 可信度 `, h('b', { class: 'verdict-' + r.level, text: { ok: '可放心使用', sensitive: '边界敏感', check: '建议校时' }[r.level] })));
   paint();
   return h('section', { class: 'v result' }, top, tabs, body);
 }
@@ -272,12 +317,12 @@ function coverCard() {
   const caps = [b3 && `${b3.asc.sign}上升 · 外在形态`, b3 && `太阳${b3.sun.sign} · 力量第 ${b3.sun.power_rank}`, b3 && `月亮${b3.moon.sign} · 第 ${b3.moon.house} 宫`, luck && `${luck.gan_zhi}大运 · 至 ${luck.end_year}`].filter(Boolean);
   const emblem = d && w ? starBadge(d).el : h('div', { class: 'sigil-empty' }, img('mark', ''));
   const cells = [['底色', p ? `${p.base.type}` : '—'], ['日主', mb ? `${mb.day_master.gan}${mb.day_master.element}` : '—'], ['上升', b3 ? b3.asc.sign : '不详'], ['大运', luck ? luck.gan_zhi : '—']];
-  return h('div', { class: 'covercard' },
+  return h('div', { class: 'covercard' }, RECT_DONE() ? img('mark', 'rt-mark md rt-cseal') : null,   // 时辰亲手定过：卡上盖一枚标识（10-04 确认图 14）
     h('div', { class: 'cc-top' }, h('span', { text: 'XUANJI OBSERVATION' }), h('span', { class: 'mono', text: S.id })),
     h('div', { class: 'cc-t1', text: t1 }), t2 ? h('div', { class: 'cc-t2', text: t2 }) : null,
     h('div', { class: 'cc-mid' }, h('div', { class: 'cc-caps' }, caps.map((x) => h('div', { text: x }))), emblem),
     h('div', { class: 'cc-cells' }, cells.map(([k, v]) => h('div', {}, h('span', { text: k }), h('b', { text: v })))),
-    h('div', { class: 'cc-foot' }, h('span', { class: 'mono', text: `${b.date}${b.time ? ' ' + b.time : ''} · ${r.place ? `${r.place.lat.toFixed(1)}°N ${r.place.lon.toFixed(1)}°E` : b.city}` }), h('b', { text: '执天玄玑' })));
+    h('div', { class: 'cc-foot' }, h('span', { class: 'mono', text: `${RECT_DONE() ? `${S.input.date} · ${HOUR()}（亲定）` : `${b.date}${b.time ? ' ' + b.time : ''}`} · ${r.place ? `${r.place.lat.toFixed(1)}°N ${r.place.lon.toFixed(1)}°E` : b.city}` }), h('b', { text: '执天玄玑' })));
 }
 function coverTab() {
   const o = S.out, sn = D.seen(o, S.nowY), p = o.method.persona;
@@ -301,13 +346,15 @@ function coverTab() {
     progressCard());
 }
 function progressCard() {
-  const o = S.out, r = D.reliability(o), st = D.strength(o), t = D.tally(S.nodes, S.ans), stg = D.stage(o, S.nowY);
+  const o = S.out, r = D.reliability(o), st = ST(), t = D.tally(S.nodes, S.ans), stg = D.stage(o, S.nowY);
   const nxt = stg && stg.years.flatMap((y) => y.items.filter((x) => x.mirror).map((x) => `${y.year} 年${x.domain}窗口`))[0];
+  const unsure = S.rect && S.rect.result === 'uncertain';
   const items = [
-    r.solid ? ['ok', '已确认', `出生时间来源：${r.source}`, 'verify'] : ['q', '待确认', `出生时间来源：${r.source}`, 'verify'],
+    RECT_DONE() ? ['ok', '已确认', `出生时辰：${HOUR()}（你亲手定的）`, 'verify'] : unsure ? ['q', '待确认', `出生时辰在${S.rect.hours.a}和${S.rect.hours.b}之间`, 'verify']
+      : r.solid ? ['ok', '已确认', `出生时间来源：${r.source}`, 'verify'] : ['q', '待确认', `出生时间来源：${r.source}`, 'verify'],
     st ? (st.kind || st.side === '待定' ? ['q', '待确认', `身强身弱：${st.verdict}`, 'verify'] : ['ok', '已判定', `身强身弱：${st.verdict}`, 'verify']) : null,
     S.nodes.length ? (t.open ? ['w', '待核对', `过去节点：${S.nodes.length - t.open} / ${S.nodes.length}`, 'verify'] : ['ok', '已验证', `过去节点：${S.nodes.length} 个`, 'verify']) : null,
-    r.level !== 'ok' ? ['q', '待确认', '出生时间边界', 'verify'] : null,
+    RECT_DONE() ? ['ok', '已确认', `时辰交界：定在${HOUR()}`, 'verify'] : r.level !== 'ok' ? ['q', '待确认', '出生时间边界', 'verify'] : null,
     nxt ? ['w', '待观察', nxt, 'time'] : null,
   ].filter(Boolean);
   return h('div', { class: 'card prog' }, h('div', { class: 'lb', text: '玄玑已经认识你到这里' }),
@@ -317,20 +364,20 @@ function progressCard() {
 // ── 标签二：验证（时间可信度／身强身弱／过去节点）──
 const diffMin = (a, b) => { const [ha, ma] = a.split(':').map(Number), [hb, mb] = b.split(':').map(Number); let d = hb * 60 + mb - (ha * 60 + ma); if (d > 720) d -= 1440; if (d < -720) d += 1440; return d === 0 ? '一致' : `${d > 0 ? '晚' : '早'} ${Math.abs(d)} 分钟`; };
 function verifyTab() {
-  const o = S.out, r = D.reliability(o), st = D.strength(o), b = o.birth;
+  const o = S.out, r = D.reliability(o, RECT_DONE()), st = ST(), b = o.birth;
   const out = [];
-  out.push(...h2('出生时间可信度', '先校验出生时间对盘面的影响范围，再进入解读。'),
-    h('div', { class: 'card' }, h('div', { class: 'vt verdict-' + r.level, text: r.head }),
+  out.push(...h2('出生时间可信度', RECT_DONE() ? '你已经亲手把时辰定下来了。' : '先校验出生时间对盘面的影响范围，再进入解读。'),
+    RECT_DONE() ? rectCard(r) : h('div', { class: 'card' }, h('div', { class: 'vt verdict-' + r.level, text: r.head }),
       rows([['钟表时间', r.clock || '不详'], r.clock ? ['真太阳时', r.solar ? `${r.solar}（${diffMin(r.clock, r.solar)}）` : '—'] : null, r.clock ? ['时间来源', r.source] : null, r.clock ? ['精度', r.precision] : null]),
-      r.risks.length ? h('div', { class: 'timenote' + (r.level === 'ok' ? '' : ' warn') }, r.risks.map((x) => h('div', { text: x.text }))) : h('div', { class: 'timenote', text: '时辰、上升、天顶都离交界有一段距离，宫头上也没有压着的星。' })),
+      r.risks.length ? h('div', { class: 'timenote' + (r.level === 'ok' ? '' : ' warn') }, r.risks.map((x) => h('div', { text: x.text }))) : h('div', { class: 'timenote', text: '时辰、上升、天顶都离交界有一段距离，宫头上也没有压着的星。' }),
+      rectEntry()),
     acc('查看依据', '真太阳时、时辰交界、上升换座、宫头', () => h('div', { class: 'why' },
       r.risks.filter((x) => x.why).map((x) => h('p', {}, h('b', { text: x.text }), h('br'), x.why)),
       r.solar ? h('p', { text: '八字按出生地的真太阳时排时柱：钟表时间按经度和当天的均时差校正。星盘按钟表时间排，1986–1991 年的夏令时已经扣掉。' }) : null,
-      h('p', { text: '离交界越近，出生时间差几分钟就越可能改掉结论；所以玄玑先说清楚这张盘能用到哪一步。' }))));
-  if (st) out.push(h('div', { class: 'gap' }), ...h2('身强身弱', '三套判法独立投票；西盘主体力量仅作佐证，不计票。'),
-    h('div', { class: 'card' }, h('div', { class: 'row' }, h('div', {}, h('div', { class: 'lb', text: '玄玑结论' }), h('div', { class: 'type', text: st.verdict })), h('span', { class: 'badge ' + (st.kind ? 'warn' : 'agree'), text: st.agree })),
-      rows(st.votes.map((v) => [v.school, v.level, v.why ? () => openSheet(v.school, () => h('div', { class: 'card' }, h('p', { text: v.why }))) : null]).concat(st.west ? [['西盘主体力量', `${st.west}（佐证）`]] : [])),
-      st.review ? h('div', { class: 'timenote warn', text: st.review }) : null),
+      h('p', { text: '离交界越近，出生时间差几分钟就越可能改掉结论；所以玄玑先说清楚这张盘能用到哪一步。' }),
+      RECT_DONE() ? h('p', { text: '时辰是你用经历定下来的。只定到时辰，不报几点几分；上升和宫位要精确到分钟，定时辰管不到。' }) : null)));
+  if (st) out.push(h('div', { class: 'gap' }), ...h2('身强身弱', st.mine ? (st.hold ? `结论先按你上次核定的身${st.side}。` : `你核的流年里，选的都是身${st.side}的人才会遇到的样子。`) : '三套判法独立投票；西盘主体力量仅作佐证，不计票。'),
+    strengthCard(st),
     acc('为什么不是数五行？', '月令、通根、得势和喜忌', () => h('div', { class: 'why' },
       h('p', { text: '身强身弱看的是日主有没有得到支撑，不是哪种五行个数多。三路判法各看一个侧面：' }),
       st.basis.map((x) => h('p', { class: 'li', text: x })),
@@ -340,9 +387,84 @@ function verifyTab() {
   out.push(h('div', { class: 'gap' }), ...nodesBlock());
   return col(...out);
 }
+// ── 身强身弱卡：三种判法＋「用你的经历核一次」（硬分歧主动请你核；其余结论照给，有疑问再核；定下来以后显示你亲手定的）──
+const FEEL_LINE = '这是你这张盘的结构，不会随年份变。以后哪一年感觉对不上，可以随时再核一次，玄玑会把新旧回答一起算。';
+const TURNED = '你后来核的回答攒够了证据，结论修正了，之前的时间线按新结论重排。';   // 方向翻了必须明示（10-05 定），不静默换结论
+const LATER = '等经历再多一些，随时可以回来核。';
+const feelPicks = () => { const m = new Map(); for (const a of S.feel) if (a.dm === DM()) m.set(a.year, a.pick); return m; };
+const feelItem = (y) => { const f = VOTE().feel; return [...f.first_ask, ...f.extra].find((x) => x.year === y) || window.XJ.feelItem(DM(), y, null, +S.out.birth.date.slice(0, 4)); };
+function strengthCard(st) {
+  const voteRows = st.votes.map((v) => [v.school, v.level, v.why ? () => openSheet(v.school, () => h('div', { class: 'card' }, h('p', { text: v.why }))) : null]).concat(st.west ? [['西盘主体力量', `${st.west}（佐证）`]] : []);
+  const again = (text) => h('button', { class: 'fe-again', type: 'button', text, on: { click: () => go('feel') } });
+  if (st.mine) {
+    const holdNote = st.hold === '加问' ? `这次的回答跟上次有出入，再看一年就能定；结论先按上次定的身${st.side}。` : st.hold === '挂起' ? `这次的回答跟上次有出入，两种读法拉不开；结论先按上次定的身${st.side}，可以把盘和回答交给创始人人工复核。` : null;
+    return h('div', { class: 'card' },
+      h('div', { class: 'row' }, h('div', {}, h('div', { class: 'lb', text: '玄玑结论 · 你亲手定的' }), h('div', { class: 'type', text: st.verdict })), img('mark', 'fe-mark')),
+      rows(voteRows.concat([['你的体感', `身${st.side}（定案）`]])),
+      [...feelPicks()].sort((a, b) => b[0] - a[0]).map(([y, pick]) => { const it = feelItem(y);
+        return h('div', { class: 'fe-yr' }, h('div', {}, h('b', { text: String(y) }), it.gan_zhi, h('span', { text: it.head + (it.focus && it.focus.length ? ` · 那年动的是${it.focus.join('、')}` : '') })),
+          h('p', { text: '你选了：' + (it.readings[pick] || (pick === '都沾' ? '两种都沾一点（不计）' : '记不清（不计）')) }),
+          it.readings[pick] ? h('i', { text: `按身${pick === '强' ? '弱' : '强'}来读，这一年会是：${it.readings[pick === '强' ? '弱' : '强']}` }) : null); }),
+      st.flip ? h('div', { class: 'kv fe-chg' }, h('div', { class: 'r' }, h('span', { text: '喜用' }), h('b', {}, h('s', { text: st.flip.favorable.join('') }), st.favorable.join(''))), h('div', { class: 'r' }, h('span', { text: '忌' }), h('b', {}, h('s', { text: st.flip.unfavorable.join('') }), st.unfavorable.join('')))) : null,
+      holdNote ? h('div', { class: 'timenote' + (st.hold === '挂起' ? ' warn' : ''), text: holdNote }) : null,
+      st.turned && !st.hold ? h('div', { class: 'timenote', text: TURNED }) : null,
+      h('p', { class: 'fe-line', text: FEEL_LINE }), again(st.hold === '加问' ? '接着核 ›' : '再核一次 ›'));
+  }
+  const fs = st.fs, card = h('div', { class: 'card' }, h('div', { class: 'row' }, h('div', {}, h('div', { class: 'lb', text: '玄玑结论' }), h('div', { class: 'type', text: st.verdict })), h('span', { class: 'badge ' + (st.kind ? 'warn' : 'agree'), text: st.agree })), rows(voteRows));
+  if (st.feel && fs && fs.status === '加问') card.append(h('div', { class: 'timenote', text: '前面几年两种读法都有对上的，再看一年就能定。' }), again('接着核 ›'));
+  else if (st.feel && fs && fs.status === '挂起') card.append(h('div', { class: 'timenote warn', text: st.review }), again('再核一次 ›'));
+  else if (st.feel && st.need && S.feelSkip) card.append(h('div', { class: 'timenote', text: '你选了先不核，身强身弱先不下结论。' }), again('想核一次的时候，看三个流年 ›'));
+  else if (st.feel && st.need) card.append(h('div', { class: 'fe-cal' },
+    h('p', { text: `${st.kind === '孤票' ? `三种判法里只有一种说出了强弱（${st.votes.map((v) => v.level).join('、')}），单凭它不下结论` : st.kind === '尺子有方向' ? `三种判法都说不偏不倚（${st.votes.map((v) => v.level).join('、')}），星盘却${st.west || '偏向一边'}` : `三种判法在你这里分歧：${st.votes.map((v) => v.level).join('、')}`}。身强和身弱的人，过同一个流年是两种样子。用你过去几年的经历核一次，一分钟。` }),
+    h('button', { class: 'cta dark', type: 'button', text: '用我的经历核一次', on: { click: () => go('feel') } }),
+    h('button', { class: 'fe-skip', type: 'button', text: '不用，先照现在的看', on: { click: () => { S.feelSkip = true; store.setFeel(S.id, null, true); show('result'); } } })));
+  else {
+    if (st.review) card.append(h('div', { class: 'timenote warn', text: st.feelWhy && st.need ? `几路判法说法相反，身强身弱先不下结论，两种都有可能。${st.young ? '你记得清的年份还不够三个' : st.feelWhy}，${LATER}` : st.review }));
+    if (st.feel) card.append(again('对这个结论有疑问？用你的经历核一次 ›'));
+  }
+  return card;
+}
+// ── 用你的经历核一次：每个对照流年写十神，身弱、身强两种读法各一条（不标、先后打乱），另有「两种都沾一点」「记不清」──
+function feel() {
+  setBar({ pill: '‹ 回到结果' });
+  const f = VOTE().feel, dm = DM(), birthY = +S.out.birth.date.slice(0, 4), had = feelPicks();
+  const all = [...f.first_ask, ...f.extra], fresh = all.filter((x) => !had.has(x.year));
+  let items = (fresh.length ? fresh : f.first_ask).slice(0, f.rules.first);
+  const picks = new Map(items.map((x) => [x.year, had.get(x.year)]));
+  const list = col(), note = col(), btn = h('button', { class: 'cta dark', type: 'button', text: '核好了' });
+  const card = (x) => {
+    const box = h('div', { class: 'card node' });
+    const paint = () => box.replaceChildren(...[   // 原生 replaceChildren 会把 null 印成字，先滤掉
+      h('div', { class: 'node-y' }, h('b', { text: `${x.year} 年` }), h('span', { text: `${x.year - birthY} 岁 · ${x.gan_zhi}` })),
+      h('div', { class: 'fe-term', text: x.head }), x.focus && x.focus.length ? h('div', { class: 'fe-focus', text: `你的盘里，这一年动的是：${x.focus.join('、')}` }) : null,
+      h('p', { class: 'node-l', text: '这一年，哪一种更像你？' }),
+      ...x.order.map((k) => h('button', { class: 'fe-opt' + (picks.get(x.year) === k ? ' on' : ''), type: 'button', text: x.readings[k], on: { click: () => choose(x, k) } })),
+      h('div', { class: 'fe-mini' }, [['都沾', '两种都沾一点'], ['记不清', '记不清']].map(([k, t]) => h('button', { class: picks.get(x.year) === k ? 'on' : '', type: 'button', text: t, on: { click: () => choose(x, k) } })))].filter(Boolean));
+    const choose = (it, k) => { picks.set(it.year, k); paint(); ready(); };
+    paint(); return box;
+  };
+  const ready = () => { btn.disabled = items.some((x) => !picks.get(x.year)); };
+  list.append(...items.map(card)); ready();
+  btn.addEventListener('click', () => {
+    const keep = S.feel.filter((a) => !(a.dm === dm && picks.has(a.year)));
+    S.feel = [...keep, ...items.map((x) => ({ year: x.year, dm, pick: picks.get(x.year) }))];
+    store.setFeel(S.id, S.feel, false); S.feelSkip = false;
+    const r = window.XJ.feelScore(dm, S.feel, f);
+    if (r.status === '加问') {
+      items = [...items, r.next]; picks.set(r.next.year, undefined);
+      note.replaceChildren(h('p', { class: 'lead fe-more', text: '还差一点：前面几年两种读法都有对上的，再看一年。' }));
+      list.append(card(r.next)); ready(); return;
+    }
+    settle(); S.tab = 'verify'; goBack();
+  });
+  return h('section', { class: 'v' }, h('div', { class: 'eyebrow', text: 'STRENGTH · 身强身弱' }), h('h2', { class: 'h1', text: '用你的经历核一次' }),
+    h('p', { class: 'lead', text: '身强和身弱的人，过同一个流年会是两种样子。玄玑从你的盘里挑了几个对照最鲜明的流年，每年两种描述，选更像那一年的你。' }),
+    list, note, btn, h('p', { class: 'fe-fine', text: '只记你选的是哪一种，存在这台手机上。' }));
+}
+
 function nodesBlock() {
   const nodes = S.nodes;
-  const head = h2('让玄玑看看你经历过什么', nodes.length ? '以下年份由八字流年与西盘行运在同一人生领域同时触发。请逐条标注：明显、部分、不符合。' : (S.out.birth.time ? '本盘未检出两套体系同时触发的过去年份；单一体系的信号不作为验证项。' : '出生时间不详，西盘行运无法落宫；本项只在两套体系同时触发时输出，故暂缺。'));
+  const head = RECT_DONE() && nodes.length ? h2(`定下来以后，玄玑再说${cnN(nodes.length)}件你没提过的事`, `用${HOUR()}这张盘挑的年份，请逐条标注：明显、部分、不符合。`) : h2('让玄玑看看你经历过什么', nodes.length ? '以下年份由八字流年与西盘行运在同一人生领域同时触发。请逐条标注：明显、部分、不符合。' : (S.out.birth.time ? '本盘未检出两套体系同时触发的过去年份；单一体系的信号不作为验证项。' : '出生时间不详，西盘行运无法落宫；本项只在两套体系同时触发时输出，故暂缺。'));
   if (!nodes.length) return head;
   const tallyBox = col();
   const paint = () => {
@@ -366,6 +488,140 @@ function nodesBlock() {
   paint();
   return [...head, ...cards, tallyBox];
 }
+
+// ── 定时辰（10-05 定：小工具也做，照 10-04 确认图）：打分是 Skill 同一份脚本（XJ.rect），这里只管问和摆 ──
+const cnN = D.cnNum;
+// 验证页入口：出生时间离时辰交界近、来源又不是出生证时才有（Skill 同一条规则）；核过但存疑的，可以再核一次
+function rectEntry() {
+  const c = RC(); if (!c) return null;
+  if (S.rect && S.rect.result === 'uncertain') return h('div', { class: 'rt-cal' },
+    h('p', { text: `你核过一次：两边还分不出来，时辰先存疑。最后一柱是${S.rect.pillars.a}还是${S.rect.pillars.b}，跟它有关的说法两种都有可能，其他照常看。想彻底定下来，最直接的办法是找出生证或医院记录。` }),
+    h('button', { class: 'fe-again', type: 'button', text: '再核一次 ›', on: { click: startRect } }));
+  const bh = S.base.method.boundary.hour, n = Math.ceil(c.side === 'prev' ? bh.minutes_from_prev : bh.minutes_to_next);
+  const [x, y] = c.side === 'prev' ? [c.to, c.from] : [c.from, c.to];
+  return h('div', { class: 'rt-cal' },
+    h('p', { text: `你的时间离${x}时和${y}时的交界只有 ${n} 分钟，八字最后一柱会因此不同。说几件记得清的事，玄玑帮你把它定下来。` }),
+    h('button', { class: 'cta dark', type: 'button', text: '定一下时辰 · 约两分钟', on: { click: startRect } }),
+    h('div', { class: 'rt-hint', text: '全部在这台手机上算，不上传' }));
+}
+// 交界另一侧再排一张（本机算，几百毫秒），然后进「说几件大事」
+function startRect() {
+  const c = RC(); if (!c) return;
+  const prev = S.rect && S.rect.result === 'uncertain' ? S.rect : null;
+  S.rt = { c, home: depth, alt: null, ev: prev ? prev.events.map((e) => ({ ...e })) : [{}, {}, {}], kids: prev ? prev.children.length > 0 : false,
+    ch: prev && prev.children.length ? prev.children.map((k) => ({ ...k })) : [{}], ask: null, ans: { targeted: {}, feel: {} }, extra: false };
+  go('busy'); const tok = depth;
+  setTimeout(() => {
+    try { S.rt.alt = window.XJ.compute(c.request); if (depth === tok) swap('rect'); } catch (e) { if (depth === tok) unwind(S.rt.home); }
+  }, 60);
+}
+function rect() {
+  setBar({ pill: '‹ 回到结果' });
+  const R = S.rt, birthY = +S.input.date.slice(0, 4);
+  const yrs = []; for (let y = S.nowY; y >= birthY + 12; y--) yrs.push([y, `${y} 年`]);
+  const kyrs = []; for (let y = S.nowY; y >= birthY + 14; y--) kyrs.push([y, `${y} 年`]);
+  const list = h('div', { class: 'rt-evs' }), kidBox = col(), btn = h('button', { class: 'cta dark', type: 'button', text: '下一步' });
+  const done = () => R.ev.filter((e) => e.year && e.domain);
+  const ready = () => { btn.disabled = done().length < 3; };
+  const evRow = (e) => h('div', { class: 'rt-ev' }, select(yrs, e.year, (v) => { e.year = +v; ready(); }, '哪一年'), chips(D.RECT_DOMAINS, e.domain, (v) => { e.domain = v; ready(); }));
+  const paintEv = () => { list.replaceChildren(...[...R.ev.map(evRow), R.ev.length < 8 ? h('button', { class: 'rt-add', type: 'button', text: '＋ 再加一件', on: { click: () => { R.ev.push({}); paintEv(); } } }) : null].filter(Boolean)); ready(); };
+  const kidRow = (k) => {
+    const dayBox = h('div', { class: 'rt-day' });
+    const paintDay = () => dayBox.replaceChildren(...(k.month === 2 ? [select(Array.from({ length: 29 }, (_, i) => [i + 1, `${i + 1} 日`]), k.day, (v) => { k.day = +v; }, '几号')] : []));
+    paintDay();
+    return h('div', { class: 'rt-kid' }, select(kyrs, k.year, (v) => { k.year = +v; }, '哪一年'),
+      select(Array.from({ length: 12 }, (_, i) => [i + 1, `${i + 1} 月`]), k.month, (v) => { k.month = +v; if (k.month !== 2) delete k.day; paintDay(); }, '几月'), dayBox);
+  };
+  const paintKids = () => (kidBox.style.display = R.kids ? '' : 'none', kidBox.replaceChildren(...(R.kids ? [...R.ch.map(kidRow), R.ch.length < 6 ? h('button', { class: 'rt-add', type: 'button', text: '＋ 再加一个孩子', on: { click: () => { R.ch.push({}); paintKids(); } } }) : null,
+    h('p', { class: 'rt-hint', text: '1 月、2 月出生的，选上月份（2 月还要几号）' })] : []).filter(Boolean)));
+  btn.addEventListener('click', () => {
+    R.events = done().map((e) => ({ year: e.year, domain: e.domain }));
+    R.children = R.kids ? R.ch.filter((k) => k.year).map((k) => ({ year: k.year, ...(k.month ? { month: k.month } : {}), ...(k.month === 2 && k.day ? { day: k.day } : {}) })) : [];
+    R.ask = window.XJ.rect.plan(S.base, R.alt, { events: R.events, children: R.children }, { now: new Date() });
+    R.ans = { targeted: {}, feel: {} }; R.extra = false;
+    go('rectAsk');
+  });
+  paintEv(); paintKids();
+  return h('section', { class: 'v' }, h('div', { class: 'eyebrow', text: 'TIME · 定时辰' }), h('h2', { class: 'h1', text: '把时辰定下来' }),
+    h('p', { class: 'lead', text: '说 3～5 件你记得清的大事：哪一年、哪方面就行，不用讲细节。' }),
+    h('div', { class: 'card fields' }, list),
+    h('div', { class: 'card fields' }, h('label', { class: 'lab', text: '有孩子吗？' }), chips([[false, '没有'], [true, '有']], R.kids, (v) => { R.kids = v; paintKids(); }), kidBox),
+    h('p', { class: 'privacy', text: '只记年份和方面，全部在这台手机上算，不上传' }), btn);
+}
+// 玄玑问你几年：专挑两张盘说法相反的年份问有没有变动；两张盘喜忌判得不一样时再问几年整体往上还是往下（题目、年份都由脚本出，不标哪年对哪张盘）
+function rectAsk() {
+  setBar({ pill: '‹ 改一下大事' });
+  const R = S.rt, A = R.ask, birthY = +S.input.date.slice(0, 4), note = col(), btn = h('button', { class: 'cta dark', type: 'button', text: '定下来' });
+  const feels = () => [...A.feel, ...(R.extra && A.feel_extra ? [A.feel_extra] : [])];
+  const ready = () => { btn.disabled = A.targeted.some((k) => !R.ans.targeted[k.id]) || feels().some((k) => !R.ans.feel[k.id]); };
+  const card = (k, q, opts, bag) => {
+    const box = h('div', { class: 'card node' });
+    const paint = () => box.replaceChildren(h('div', { class: 'node-y' }, h('b', { text: `${k.year} 年` }), h('span', { text: `${k.year - birthY} 岁` })), h('p', { class: 'node-l', text: q }),
+      h('div', { class: 'ans-row' }, opts.map(([v, t]) => h('button', { type: 'button', class: 'ans' + (bag[k.id] === v ? ' f1' : ''), text: t, on: { click: () => { bag[k.id] = v; paint(); ready(); } } }))));
+    paint(); return box;
+  };
+  const FEEL_OPTS = [['顺', '往上走'], ['闷', '往下走'], ['没感觉', '没感觉']];
+  const fcard = (k) => card(k, '整体是往上走，还是往下走？', FEEL_OPTS, R.ans.feel);
+  const fbox = col(...feels().map(fcard));
+  btn.addEventListener('click', () => {
+    const answers = { targeted: { ...R.ans.targeted }, feel: { ...R.ans.feel } };
+    const r = window.XJ.rect.score(S.base, R.alt, { events: R.events, children: R.children }, A, answers);
+    if (r.feel_vote.need_extra && !R.extra && A.feel_extra) {   // 前面的体感拉不开，再看一年（哪年由脚本定）
+      R.extra = true; fbox.append(fcard(A.feel_extra)); note.replaceChildren(h('p', { class: 'lead fe-more', text: '还差一点：再看一年就能定。' })); ready(); return;
+    }
+    finishRect(r, answers);
+  });
+  ready();
+  return h('section', { class: 'v' }, h('div', { class: 'eyebrow', text: 'TIME · 定时辰' }), h('h2', { class: 'h1', text: '玄玑想问你几年' }),
+    A.targeted.length ? h('p', { class: 'lead', text: '只问有没有明显的变动；记不清就选「没印象」。' }) : h('p', { class: 'lead', text: '你说的这几件已经够了，直接定。' }),
+    A.targeted.map((k) => card(k, k.question.replace(/^\d+ 年，你/, ''), [['有', '有'], ['没有', '没有'], ['没印象', '没印象']], R.ans.targeted)),
+    A.feel.length ? [h('h2', { class: 'h2 rt-h2', text: A.feel.length > 1 ? `这${cnN(A.feel.length)}年过得怎么样` : '这一年过得怎么样' }), h('p', { class: 'lead', text: '事业、钱、感情，挑你有印象的说。' }), fbox, note] : null, btn);
+}
+// 定下来：存本机（只有年份和方面、题和回答、结果）；定在隔壁时辰就整盘换过去，身强身弱按新盘重判
+function finishRect(r, answers) {
+  const R = S.rt, A = S.base, B = R.alt, win = r.result === 'uncertain' ? null : r.result;
+  const it = D.rectItems(A, B, { events: R.events, ask: R.ask, answers }, window.XJ.rect.weight);
+  const va = D.strength(A), vb = D.strength(B), fav = (o) => (o.method.bazi && o.method.bazi.useful ? o.method.bazi.useful.favorable.join('') : '');
+  S.rect = { at: Date.now(), request: R.c.request, events: R.events, children: R.children,
+    asked: [...R.ask.targeted.map((k) => k.year), ...[...R.ask.feel, R.extra ? R.ask.feel_extra : null].filter(Boolean).map((k) => k.year)],
+    result: r.result, hours: r.hours, pillars: { a: A.bazi.bazi.pillars.hour.ganZhi, b: B.bazi.bazi.pillars.hour.ganZhi }, lean: r.lean, tie: r.tie_broken_by_children,
+    items: it.map((x) => ({ year: x.year, kind: x.kind, domain: x.domain || null, ans: x.ans || null, side: x.side })), why: win ? D.rectWhy(it, r.hours, win) : [],
+    change: win === 'b' ? { strength: [va ? va.verdict : '—', vb ? vb.verdict : '—'], fav: [fav(A), fav(B)] } : null };
+  store.setRect(S.id, S.rect);
+  if (win === 'b') { S.base = S.out = B; S.side = null; }
+  S.nodes = nodesOf(S.out); settle(); S.tab = 'verify';
+  if (win) swap('rectDone'); else unwind(R.home);
+}
+// 定下来的那一刻
+function rectDone() {
+  setBar({});
+  const R = S.rect, win = R.result, d = new Date(R.at), home = S.rt ? S.rt.home : 1, by = R.items.filter((x) => x.side === win);   // 站在定下来那边的几件
+  const yrs = [...new Set(by.map((x) => x.year))].sort((a, b) => a - b);
+  return h('section', { class: 'v rt-rit' }, img('mark', 'rt-mark lg'), h('div', { class: 'ey', text: '你亲手定下的时辰' }),
+    h('div', { class: 'pz' }, win === 'b' ? [h('span', { class: 'old', text: R.pillars.a }), h('span', { class: 'arw', text: '→' })] : null, h('span', { class: 'new', text: R.pillars[win] })),
+    h('div', { class: 'shi', text: R.hours[win].split('').join(' ') }),
+    h('div', { class: 'by' }, `由你的 ${by.length} 件经历定下`, h('br'), yrs.join(' · ')),
+    h('div', { class: 'dt', text: `${d.getFullYear()} · ${pad2(d.getMonth() + 1)} · ${pad2(d.getDate())}` }),
+    h('button', { class: 'b-pill rt-go', type: 'button', text: '看看定下来以后的盘', on: { click: () => unwind(home) } }));
+}
+// 定下来以后的出生时间卡：揭晓（定在哪个时辰、怎么定的）＋ 变化（最后一柱、身强身弱、喜用）
+function rectCard(r) {
+  const R = S.rect, win = R.result, lose = win === 'a' ? 'b' : 'a', hr = R.hours[win];
+  const ys = R.items.map((x) => x.year), lo = Math.min(...ys), hi = Math.max(...ys), X = (y) => (hi === lo ? 50 : 6 + ((y - lo) / (hi - lo)) * 88);
+  const seen = {}, nudge = R.items.map((x) => { const k = seen[x.year] = (seen[x.year] || 0) + 1; return (k - 1) * 5; });   // 同一年两件，第二个点往右挪一点，免得叠在一起
+  const cls = (x) => (x.side === win ? 'y' : x.side === lose ? 'o' : 'n') + (x.kind === 'feel' ? ' f' : '');
+  const lab = (x) => (x.kind === 'feel' ? x.ans : { 工作: '工作', 事业认可: '事业', 感情: '感情', 家庭: '家里', 钱: '钱', 迁移远方: '去外地' }[x.domain] + (x.ans === '没有' ? '·没变' : ''));
+  const tl = h('div', { class: 'rt-tl' }, h('div', { class: 'rt-ax' }), R.items.map((x, i) => [h('div', { class: 'rt-dt ' + cls(x), style: { left: Math.min(97, X(x.year) + nudge[i]) + '%' } }),
+    h('div', { class: 'rt-lab', style: { left: Math.min(94, X(x.year) + nudge[i]) + '%', top: i % 2 ? '64px' : '4px' } }, String(x.year), h('br'), lab(x))]));
+  return h('div', { class: 'card' }, h('div', { class: 'row' }, h('div', { class: 'vt verdict-ok', text: `时辰定在${hr}` }), img('mark', 'rt-mark sm')),
+    rows([['钟表时间', S.input.time], win === 'a' && r.solar ? ['真太阳时', `${r.solar}（${diffMin(r.clock, r.solar)}）`] : null, ['定下的时辰', `${hr} · ${R.pillars[win]}`], ['怎么定的', `你的 ${R.items.filter((x) => x.side === win).length} 件经历`]]),
+    R.items.length ? [tl, h('div', { class: 'rt-lg' }, h('span', {}, h('i', { class: 'y' }), `站在${hr}这边`), h('span', {}, h('i', { class: 'o' }), `站在${R.hours[lose]}这边`), R.items.some((x) => !x.side) ? h('span', {}, h('i', { class: 'n' }), '两边一样，不算') : null)] : null,
+    R.why.length ? h('ul', { class: 'rt-why' }, R.why.map(([c, t]) => h('li', { class: c, text: t }))) : null,
+    r.risks.length ? h('div', { class: 'timenote warn' }, r.risks.map((x) => h('div', { text: x.text }))) : null,
+    h('div', { class: 'kv rt-chg' }, win === 'b' ? [rowChg('最后一柱', R.pillars.a, R.pillars.b), rowChg('身强身弱', R.change.strength[0], R.change.strength[1]), rowChg('喜用', R.change.fav[0], R.change.fav[1])]
+      : h('div', { class: 'r' }, h('span', { text: '最后一柱' }), h('b', { text: `${R.pillars.a}（不变）` }), h('i'))));
+}
+const rowChg = (k, a, b) => h('div', { class: 'r' }, h('span', { text: k }), a === b ? h('b', { text: `${b}（不变）` }) : h('b', {}, h('s', { text: a }), b), h('i'));
 
 // ── 标签三：星盘 ──
 // 默认就摊开整张盘的数据（四轴、行星、小行星虚点、相位表、宫头、元素模式），截一张图就够拿去解读；解释和明细再点开。
@@ -439,7 +695,7 @@ function chartTab() {
 
 // ── 标签四：八字 ──
 function baziTab() {
-  const o = S.out, bz = o.bazi.status === 'ok' ? o.bazi : null, mb = o.method.bazi, st = D.strength(o), stg = D.stage(o, S.nowY);
+  const o = S.out, bz = o.bazi.status === 'ok' ? o.bazi : null, mb = o.method.bazi, st = ST(), stg = D.stage(o, S.nowY);
   if (!bz) return col(...h2('八字', '八字没排出来。'));
   const P = bz.bazi.pillars, K = ['year', 'month', 'day', 'hour'], NM = ['年柱', '月柱', '日柱', '时柱'];
   // 用神「调候取用」：排盘标了用神是调候取的（climateUseful），而且跟这一页的身强身弱结论看着相反，才标
@@ -465,7 +721,7 @@ function baziTab() {
       h('div', { class: 'card ss' }, mb.shensha.dimensions.map((x) => h('button', { class: 'ssr tap', type: 'button', on: { click: () => openSheet('神煞', shenshaSheet) } },
         h('span', { text: x.name }), h('div', { class: 'bar' }, h('i', { style: { width: Math.max(4, Math.min(100, x.score)) + '%' } })), h('span', { class: 'ssv', text: String(x.score) }))))] : null,
     mb.luck ? [h('div', { class: 'gap' }), ...h2('大运', '十年一运；展开可查看该运内逐年的触发领域。'),
-      h('div', { class: 'card' }, h('div', { class: 'lucks' }, mb.luck.slice(0, 8).map((l) => h('button', { class: 'lk tap' + (stg && stg.luck && stg.luck.seq === l.seq ? ' now' : ''), type: 'button', on: { click: () => openSheet(`${l.gan_zhi}大运`, () => luckDetail(l)) } }, h('b', { text: l.gan_zhi[0] }), h('b', { text: l.gan_zhi[1] }), h('span', { text: `${l.start_age}岁` })))))] : null);
+      h('div', { class: 'card' }, h('div', { class: 'lucks' }, mb.luck.slice(0, 8).map((l) => h('button', { class: 'lk tap' + (stg && stg.luck && stg.luck.seq === l.seq ? ' now' : ''), type: 'button', on: { click: () => openSheet(`${l.gan_zhi}大运`, () => luckDetail(l)) } }, h('b', { text: l.gan_zhi[0] }), h('b', { text: l.gan_zhi[1] }), h('span', { text: `${l.start_age}${l.age_kind === '周岁' ? '周岁' : '岁'}` })))))] : null);
 }
 
 // 用神「调候取用」的说明：只看身强身弱，这一行本该避开；生的月份寒暖燥湿偏得厉害，先调候
@@ -484,17 +740,18 @@ function timeTab() {
   const L = stg && stg.luck, next = L && mb.luck.find((x) => x.seq === L.seq + 1);
   const pct = L ? Math.round(((S.nowY - L.start_year + 0.5) / (L.end_year - L.start_year + 1)) * 100) : 0;
   return col(
+    S.side ? h('div', { class: 'timenote fe-turn', text: `时间线按你核定的身${S.side}排。` }) : null,
     h('div', { class: 'eyebrow', text: '你现在所在的时间段' }),
     L ? h('div', { class: 'now' }, h('div', { class: 'now-t', text: `${L.gan_zhi}大运 · ${stg.gz}流年` }), h('div', { class: 'now-s', text: `${L.start_year} — ${L.end_year}　${L.title ? L.title.join(' · ') : ''}` }),
       next ? h('div', { class: 'now-s', text: `下一步大运：${next.start_year} 年起 ${next.gan_zhi}` }) : null, h('div', { class: 'progress' }, h('i', { style: { width: pct + '%' } }))) : null,
     ...h2('接下来三年', '按年列出八字与西盘的触发领域；「两套同亮」为两套体系同年同域触发。'),
     stg.years.map((y) => h('button', { class: 'next tap', type: 'button', on: { click: () => openYear(y.year) } },
       h('span', { class: 'y', text: String(y.year) }),
-      h('span', { class: 'd' }, y.items.slice(0, 4).map((x) => h('span', { class: 'dom' + (x.mirror ? ' mirror' : ''), text: x.domain + (x.mirror ? ' · 两套同亮' : '') }))),
+      h('span', { class: 'd' }, y.shift ? h('span', { class: 'dom shift', text: '换挡年' }) : null, y.items.slice(0, 4).map((x) => h('span', { class: 'dom' + (x.mirror ? ' mirror' : ''), text: x.word + (x.mirror ? ' · 两套同亮' : '') }))),
       h('i', { class: 'chev', text: '›' }))),
     h('div', { class: 'gap' }), ...h2('按需展开完整周期', '上方为当前所处阶段；完整计算表保留于此，追溯前后周期时展开。'),
     h('div', { class: 'accs' },
-      acc('完整大运表', `${mb.luck.length} 个阶段 · 查看完整人生周期`, () => rows(mb.luck.map((l) => [`${l.start_age}–${l.end_age} 岁`, `${l.gan_zhi} · ${l.start_year}–${l.end_year}${L && L.seq === l.seq ? ' · 当前' : ''}`, () => openSheet(`${l.gan_zhi}大运`, () => luckDetail(l))]))),
+      acc('完整大运表', `${mb.luck.length} 个阶段 · 查看完整人生周期`, () => rows(mb.luck.map((l) => [luckAge(l), `${l.gan_zhi} · ${luckYears(l)}${L && L.seq === l.seq ? ' · 当前' : ''}`, () => openSheet(`${l.gan_zhi}大运`, () => luckDetail(l))]))),
       acc('流年表', `${S.nowY - 5}–${S.nowY + 9} · 每年八字和星盘各亮了哪块`, () => yearsTable(t.years.filter((y) => y.year >= S.nowY - 5 && y.year <= S.nowY + 9))),
       t.months && t.months.length ? acc('近三年星盘窗口', `${t.months.length} 个窗口 · 精确到月`, monthsSheet) : null,
       t.months_bazi && t.months_bazi.length ? acc('八字流月高发月', `${t.months_bazi.length} 年 · 只细化已经亮灯的流年`, monthsBaziSheet) : null,
@@ -514,10 +771,13 @@ function planetDetail(p) {
 function pillarDetail(x) {
   return h('div', { class: 'card' }, rows([['干支', `${x.ganZhi} · ${x.tenGod || ''}`], ['藏干', (x.hidden || []).map((y) => `${y.stem}${y.element}·${y.tenGod}`).join('　')], x.nayin ? ['纳音', x.nayin] : null, x.lifeStage ? ['十二长生', x.lifeStage] : null, x.ziZuo ? ['自坐', x.ziZuo] : null, x.kongWang ? ['空亡', x.kongWang.join('')] : null, x.shensha && x.shensha.length ? ['神煞', x.shensha.join('、')] : null]));
 }
+// 大运岁数统一周岁（10-06）：「3 周岁起运」，年份写到下一步交运那年；老版排盘只有虚岁时照旧显示区间
+const luckAge = (l) => (l.age_kind === '周岁' ? `${l.start_age} 周岁${l.seq === 1 ? '起运' : '交运'}` : `${l.start_age}–${l.end_age} 岁`);
+const luckYears = (l) => (l.age_kind === '周岁' ? `${l.start_year}–${l.start_year + 10}` : `${l.start_year}–${l.end_year}`);
 function luckDetail(l) {
   const ys = (S.out.method.timing ? S.out.method.timing.years : []).filter((y) => y.year >= l.start_year && y.year <= l.end_year);
   return col(
-    h('div', { class: 'card' }, rows([['年份', `${l.start_year}–${l.end_year}`], ['年龄', `${l.start_age}–${l.end_age} 岁`], l.tier_name ? ['档位', l.tier_name] : null]), l.title ? h('div', { class: 'co-t', style: { marginTop: '6px' }, text: l.title.join(' · ') }) : null, l.line ? h('p', { class: 'co-l', text: l.line }) : null),
+    h('div', { class: 'card' }, rows([['年份', luckYears(l)], ['年龄', luckAge(l)], l.tier_name ? ['档位', l.tier_name] : null]), l.title ? h('div', { class: 'co-t', style: { marginTop: '6px' }, text: l.title.join(' · ') }) : null, l.line ? h('p', { class: 'co-l', text: l.line }) : null),
     ys.length ? yearsTable(ys) : null);
 }
 function yearsTable(ys) {
@@ -525,16 +785,17 @@ function yearsTable(ys) {
     const t = TIER[y.tier] || TIER[2], lit = [...new Set([...Object.keys(y.bazi || {}), ...Object.keys(y.west || {})])].filter((k) => k !== '全局');
     return h('button', { class: 'rowd tap', type: 'button', on: { click: () => openSheet(`${y.year} ${y.gan_zhi}年`, () => yearDetail(y)) } },
       h('span', { text: String(y.year) }), h('span', { class: 'tier', style: { background: t[1], color: t[2] }, text: t[0] }),
-      h('b', { style: { textAlign: 'left', fontSize: '13px' }, text: lit.length ? lit.map((k) => k + (y.mirror.includes(k) ? '◆' : '')).join(' ') : '—' }), h('i', { class: 'chev', text: '›' }));
-  }), h('p', { class: 'faint small', text: '◆ 八字和星盘同一年、同一块人生同时亮' }));
+      h('b', { style: { textAlign: 'left', fontSize: '13px' }, text: (y.shift ? '换挡 ' : '') + (lit.length ? lit.map((k) => D.domainWord(k, y.context) + (y.mirror.includes(k) ? '◆' : '')).join(' ') : '—') }), h('i', { class: 'chev', text: '›' }));
+  }), h('p', { class: 'faint small', text: '◆ 八字和星盘同一年、同一块人生同时亮　换挡＝交大运前后一年，两边同一块都在动' }));
 }
 function yearDetail(y) {
   const t = TIER[y.tier] || TIER[2];
   const block = (title, obj) => Object.keys(obj || {}).length ? h('div', { class: 'card' }, h('div', { class: 'lb', text: title }), Object.entries(obj).map(([k, v]) => h('div', { class: 'ev' },
-    h('div', { class: 'row' }, h('b', { text: k + (y.mirror.includes(k) ? ' · 两套同亮' : '') }), h('span', { class: 'faint small', text: `信号 ${v.w}${v.neg ? ' · 偏紧' : ''}` })),
+    h('div', { class: 'row' }, h('b', { text: D.domainWord(k, y.context) + (y.mirror.includes(k) ? ' · 两套同亮' : '') }), h('span', { class: 'faint small', text: `信号 ${v.w}${v.neg ? ' · 偏紧' : ''}` })),
     v.why.map((w) => h('p', { class: 'li small', text: w }))))) : null;
   return col(
-    h('div', { class: 'card' }, rows([['年龄', `${y.age} 岁`], ['大运', y.luck || '—'], ['整体', t[0]]])),
+    h('div', { class: 'card' }, rows([['年龄', `${y.age} 周岁${y.context === '学业' ? ' · 按上学的年纪说' : ''}`], ['大运', y.luck || '—'], ['整体', t[0]]])),
+    y.shift ? h('div', { class: 'timenote', text: `换挡年：${y.shift.when === '当年' ? '交大运这一年' : '交大运前后一年'}（${y.shift.luck}），${y.shift.domains.map((k) => D.domainWord(k, y.context)).join('、')}两边都在动。${y.shift.note}。` }) : null,
     block('八字', y.bazi), block('星盘行运', y.west),
     !Object.keys(y.bazi || {}).length && !Object.keys(y.west || {}).length ? h('p', { class: 'faint', text: '这一年没有亮灯的领域，是平稳的一年。' }) : null);
 }
@@ -573,7 +834,7 @@ function panel(i, n, title, ...body) {
     h('div', { class: 'panel-f' }, h('span', { text: S.id }), h('span', { text: 'XUANJI · ASTRO' })));
 }
 function dossier() {
-  const o = S.out, r = D.reliability(o), st = D.strength(o), w = o.method.west, d = o.western.data, bz = o.bazi.status === 'ok' ? o.bazi.bazi : null, mb = o.method.bazi, p = o.method.persona, stg = D.stage(o, S.nowY);
+  const o = S.out, r = D.reliability(o), st = ST(), w = o.method.west, d = o.western.data, bz = o.bazi.status === 'ok' ? o.bazi.bazi : null, mb = o.method.bazi, p = o.method.persona, stg = D.stage(o, S.nowY);
   const N = 5, out = [], ansW = Object.fromEntries(D.ANSWERS);
   out.push(panel(1, N, '出生时间', rows([['钟表时间', r.clock || '不详'], ['真太阳时', r.solar || '—'], ['出生地', r.place ? r.place.name : o.birth.city], r.place ? ['经纬度', `${r.place.lat.toFixed(2)}°N · ${r.place.lon.toFixed(2)}°E`] : null, ['时间来源', r.source], ['精度', r.precision], ['结论', r.head]])));
   if (d && w && w.big3) out.push(panel(2, N, '本命星盘', wheel(d), rows([['太阳', `${w.big3.sun.sign} ${w.big3.sun.house} 宫`], ['月亮', `${w.big3.moon.sign} ${w.big3.moon.house} 宫`], ['上升', `${w.big3.asc.sign} ${w.big3.asc.deg}°${pad2(w.big3.asc.min)}′`]])));
@@ -585,8 +846,8 @@ function dossier() {
   return col(...out);
 }
 function share() {
-  const o = S.out, sn = D.seen(o, S.nowY), reasons = D.founderReasons(o, S.nodes, S.ans), stg = D.stage(o, S.nowY), p = o.method.persona, mb = o.method.bazi;
-  const text = D.handoff(o, S.nodes, S.ans, { nowY: S.nowY, tool: TOOL });
+  const o = S.out, sn = D.seen(o, S.nowY), reasons = D.founderReasons(o, S.nodes, S.ans, FS(), HELD()), stg = D.stage(o, S.nowY), p = o.method.persona, mb = o.method.bazi;
+  const text = D.handoff(o, S.nodes, S.ans, { nowY: S.nowY, tool: TOOL, fs: FS(), held: HELD(), hour: HOUR() });
   setBar({ pill: '‹ 回到结果' });
   const sig = [p && `底色 ${p.base.type} ${p.base.name}`, mb && `${mb.day_master.gan}${mb.day_master.element}日主 · ${mb.day_master.image}`, stg && stg.now ? stg.now.text.replace(/，八字和星盘同时亮$/, '') : null].filter(Boolean);
   const numbered = (no, title, tag, sub, build, open) => {
@@ -636,12 +897,31 @@ const FAQ = [
     ['出生地坐标从哪里来？', '全国省、市、区三级行政区坐标库（GCJ-02）。只选到市一级时，取该市各区坐标的平均值。占星用途下的坐标误差可忽略。'],
     ['时区与夏令时如何处理？', '统一按 UTC+8。1986–1991 年中国实行夏令时，按当年起止日 02:00 的边界精确扣除。海外出生暂不支持。'],
     ['星盘与八字为什么用不同的时间？', '星盘按钟表时间与出生地经纬度排；八字按真太阳时（经度时差加均时差）定时柱。两者相差几分钟到几十分钟属正常。'],
-    ['出生时间不确定怎么办？', '先看「出生时间可信度」：离时辰交界、上升换座与宫头都远，几分钟误差不改结论；临近边界或只知大概时间，建议校时，可申请创始人复核。'],
+    ['出生时间不确定怎么办？', '先看「出生时间可信度」：离时辰交界、上升换座与宫头都远，几分钟误差不改结论；卡在时辰交界上的，可以在验证页用你的经历「定一下时辰」；只知大概时间，建议校时，可申请创始人复核。'],
   ]],
   ['八字口径', [
     ['年、月以什么为界？', '立春换年，节气换月；23:00 换日线采用晚子时口径，与排盘引擎保持一致。'],
-    ['身强身弱如何判定？', '排盘引擎（月令、通根、得势七档）、易奇旺衰分、新派（月令为主）三票多数决。强弱相反时记为硬分歧，不输出结论；有一路判到极档时提示复核从格。西盘主体力量仅作佐证。'],
     ['喜用与格局从哪里来？', '喜用神、格局与大运由排盘引擎给出；日主意象、格局花名与大运标题取自玄玑生辰页的同一套词库。'],
+  ]],
+  ['身强身弱 · 怎么算、为什么、怎么复核', [
+    ['身强身弱是什么？为什么要判？', '说的是日主（出生那天的天干，代表你自己）在整张盘里有多大力量。它决定喜用：身强的人宜克泄耗，把力气用出去；身弱的人宜生扶，要有人帮、有底气。判反了，喜用整个反过来，后面的方向、每年顺不顺都会读反，所以要认真判。\n判强弱之前会先看整张盘是不是特殊格局（比如「从格」）；是的话不按身强身弱这套论，喜忌另有算法。'],
+    ['怎么算的？', '三种判法各自独立投一票，多数为准，方向一致才算多数：两票说强、一票说弱，不算多数，算说法不一样（见第 4 条）。\n① 排盘引擎：看月令（出生的季节帮不帮你）、通根（地支里有没有你的根）、得势（其余各柱帮你还是耗你），分七档；\n② 旺衰打分法：把得令、长生、得地、天干得势逐项打分相加；\n③ 新派：出生季节占一半分量，再看其余各柱。\n西方星盘的主体力量（太阳和命主星的庙旺、宫位、相位）只作旁证，不计票。'],
+    ['为什么要三种一起投？', '每一派都有盲区：有的偏重季节，有的偏重根，有的只数五行多寡。几家一致的地方最可靠；不一致，说明光看盘判不了，这时候不硬判。'],
+    ['三种判法说法不一样，怎么定？', '用你的经历核一次。身强和身弱会推出两套相反的喜忌，同一个流年在两种读法下是两种样子。我们从你的盘里挑三个对照最鲜明的流年：两种读法说法正好相反；天干地支同属一边，性质干净；离现在近、记得清（大约 15 岁以后）；帮身的年份和耗身的年份都有，免得被你这几年整体越过越好或越过越难带偏；优先挑你盘里那一年真被引动过的，你记得更清楚。每年写出这一年的十神，给出两种读法下的具体样子（不标哪种是身强），样子写在你盘里那一年动的事上，所以每个人问到的都不一样；那一年你还在上学（22 岁及以下），就按上学的样子写。你选更像的那一种。\n至少两年选了同一种、另一种一年都没选，才定下来；「两种都沾一点」「记不清」不算。拉不开就再加问一年，最多问到五年；还拉不开，先不定，转人工复核。\n凑不满三个记得清的年份（年纪还小，或近几年没有合适的对照年），先不问，身强身弱两种都有可能；等经历再多一些，随时可以回来核。\n三种判法说法一致时结论照给；你有疑问，也可以自己核一次。'],
+    ['为什么以你的经历为准？', '三种判法看的是同一张盘，打架时谁也说服不了谁；你过去的日子是盘以外唯一的证据。拿真实发生过的事去验两套预言，哪一套对得上就用哪一套：不是感觉压过道理，是用事实验算法。前提是按上面的方式问出来的回答；随口说的「那年挺顺」不算。'],
+    ['以后某一年感觉对不上，结论会变吗？', '不会。身强身弱是盘的结构，定下来不随年份变；每年顺不顺是天气，还受大运、身边的人和自己的选择影响。偶尔一年对不上是正常的，不因此翻案。走到帮身或耗身的大运，十年里感觉会整体偏一边，那是季节，不是结构变了。\n前提是盘不变：如果出生时间改了、换了一张盘，以新盘为准重判一次；你之前的回答照样拿来对照新盘。'],
+    ['还是有疑问，怎么复核？', '随时可以再核一次。你之前的回答都留着（只记年份和选了哪一种，存在这台手机上），新旧一起算，结论看攒下来的全部证据，不看最近一次的心情。连续几个典型年份都对不上，就值得再核。\n核出来的结论跟原来相反时，喜用、大运和整条时间线都按新结论重排，页面上会明说，不会悄悄换。这次的回答跟上次有出入、还拉不开时，结论先按上次定的，证据攒够了才改。仍有争议，可以把盘和你的回答交给创始人人工复核（见「保存、分享与继续」）。'],
+  ]],
+  ['定时辰 · 什么时候需要、怎么定、边界在哪', [
+    ['定时辰是什么？什么时候需要？', '八字的最后一柱是时柱，两个小时换一个时辰。出生时间离时辰交界很近，时间又不是出生证上的（比如家里人回忆的），差几分钟就可能落到隔壁时辰，时柱整个换掉。只有这种时候才需要定。\n时间来自出生证、医院记录的，按记录排，不来回翻；离交界远的，也不用定。'],
+    ['卡在交界上，会影响什么？', '时柱换了，八字里看子女、晚年的那一柱就换了，格局的成色和喜忌也可能跟着变；星盘上，上升点附近、压在宫位分界上的星，落在哪一宫可能会变。\n差十几分钟，整张盘的大结构通常不动，变的主要是时柱和这几处。'],
+    ['怎么定的？', '把时间挪到交界另一侧，再排一张盘。两张盘放在一起，用你自己的经历去对：\n① 你先说 3～5 件记得清的大事，只要哪一年、哪方面（工作、事业或名声、感情、家里、钱、搬家或去外地），不用讲细节；有孩子的，说一下孩子哪年出生。\n② 再专门问你几年：只挑两张盘说法正好相反的年份，问那一年某方面「有没有明显的变动」，你答「有／没有／没印象」。\n③ 两张盘对喜忌判断不一样时，再问几年那一年整体「往上走／往下走／没感觉」。'],
+    ['怎么判？', '分两票。\n第一票看事：你说的大事和专门问的年份分开记账，合在一起判。一边要明显多出一截（多出四分之一以上），而且至少有两件站在这一边，才记这一票；不够就不记，宁可存疑，不降标准凑票。\n第二票看体感：至少两年指向同一张盘，而且多过另一张。\n孩子的出生年份不单独成票，只在两票一比一时用来打破平局。\n两票合起来：两票指向同一张，或者只有一票，就定这张；一比一时看孩子的出生年份；一票都没有，就先存疑。\n结果只有三种：原来的时辰、隔壁的时辰、还分不出来。分数由程序按固定规则算，不由人或 AI 现场判断，每个人用的是同一套规则（跟 Xuanji Skill 是同一份打分程序）。'],
+    ['为什么不直接问「你觉得自己像哪个时辰」？', '感觉会被描述带着走。我们只问发生过什么、有没有变动：不告诉你哪一年是为哪个时辰问的，不提示可能是什么事，也不暗示「按某张盘你那年该有什么」。「没印象」可以答，不算分，不硬让你回忆。'],
+    ['分不出来怎么办？', '先存疑。跟时柱有关的说法两种都有可能，其他照常看。想彻底定下来，最直接的办法是找出生证或医院记录。'],
+    ['定下来以后呢？', '就按定下来的时辰往下看，不再反复让你复核。定在隔壁时辰的，各页都改用那张盘，身强身弱也按新盘重判；你核身强身弱时的回答，日主没变的照样拿来对照。\n只说定在哪个时辰，不报具体几点几分：挪过去的时间只是交界另一侧的一个代表时间，要精确到分钟的说法（比如上升、宫头）也不跟着定。'],
+    ['你说的大事会去哪？', '只记年份和方面，不记你讲的细节；打分在这台手机上算，不上传，也不联网。'],
+    ['这个方法管不到的', '时辰完全不知道的（十二个都有可能），不做，照年月日三柱排，跟时柱有关的结论不说；\n上升、天顶卡在换星座边界的，只如实告诉你，不拿来打分定；\n晚年的事（时柱主 48 岁以后）这一版还不拿来对。'],
   ]],
   ['应期与验证', [
     ['过去节点如何选取？', '八字流年（v2.1）与西盘行运（v1）分别计分，取二者在同一年、同一领域同时亮起的年份；按信号强度排序，领域不重复、年份间隔三年以上，至多三条。'],
@@ -650,7 +930,7 @@ const FAQ = [
   ]],
   ['使用边界', [
     ['这些结果该如何使用？', '盘面与推算由系统计算；明显、部分、不符合由你亲手标注。本工具只呈现结构，不做长篇解读，深度解读交由 Xuanji Skill 与创始人。'],
-    ['出生信息保存在哪里？', '全部计算在本机完成，不联网；最近五张盘保存在本机的小工具存储中，可在首页删除。'],
+    ['出生信息保存在哪里？', '全部计算在本机完成，不联网；最近五张盘，你核身强身弱时选的读法，以及定时辰时说的年份和方面，保存在本机的小工具存储中，可在首页删除。'],
   ]],
 ];
 function method() {
@@ -660,7 +940,7 @@ function method() {
   return h('section', { class: 'v' },
     h('div', { class: 'eyebrow', text: 'METHOD · 方法与边界' }), h('h2', { class: 'h1', text: '方法与边界' }),
     h('p', { class: 'lead', text: '这里披露本工具采用的体系、计算口径，以及可能与其他软件产生差异的地方，帮助你判断结果的适用范围。' }), divd(),
-    FAQ.map(([g, qs]) => [h('div', { class: 'eyebrow', text: g }), h('div', { class: 'accs' }, qs.map(([q, a]) => acc(q, null, () => h('p', { class: 'sub', text: a }))))]),
+    FAQ.map(([g, qs]) => [h('div', { class: 'eyebrow', text: g }), h('div', { class: 'accs' }, qs.map(([q, a]) => acc(q, null, () => h('div', {}, a.split('\n').map((t) => h('p', { class: 'sub fe-p', text: t }))))))]),
     h('div', { class: 'card spec' },
       h('div', { class: 'spec-r' }, h('b', { text: '这个版本' }), h('p', { text: '离线观测版 0.1：全部在本机计算。更完整的推算与长篇解读在 Xuanji Skill 与玄玑网站。' })),
       o ? h('div', { class: 'spec-r' }, h('b', { text: '引擎' }), h('p', { class: 'mono', text: `natal ${o.version.natal} · astro-mbti ${o.version.astro_mbti} · ${o.method.timing ? o.method.timing.schema : ''}` })) : null,
@@ -669,7 +949,7 @@ function method() {
     h('div', { class: 'foot' }, h('div', { class: 'motto', text: '盘定战场，不定战役。' })));
 }
 
-const VIEWS = { home, form, busy, fail, result, share, method };
+const VIEWS = { home, form, busy, fail, result, share, method, feel, rect, rectAsk, rectDone };
 addEventListener('scroll', () => document.body.classList.toggle('scrolled', window.scrollY > 8), { passive: true });
 hist('replaceState', 0);
 show('home');

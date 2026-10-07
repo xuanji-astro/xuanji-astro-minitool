@@ -63,6 +63,13 @@
     官杀混杂: '选择太多是不是比没得选还累？两座山挑一座爬——爬到顶那天，回头看都是路。',
     伤官见官: '浑身是刺和浑身是光，差在哪儿？差个舞台——挑对场子再亮锋芒，比处处亮值钱得多。',
   };
+  // 不带强弱断语的版本（10-06 用户反馈后定强弱向的说法只在强弱实锤时出；阴干没有羊刃）。
+  // 劫财格＝阴干日主月令劫财（引擎叫劫财格，阴干不借阳刃格那套）；阳刃格、食神制杀＝强弱还没核实时换这一版。10-06 定字
+  const HUAMING_SOFT = {
+    劫财格: { line: '同辈里长本事，好胜也讲义气', desc: '身边的人对你是助力还是对手？两样都有——你在同辈里长本事，合作时讲义气，较劲时不服输，分寸拿捏好了就是长处。' },
+    阳刃格: { line: '不服输的那股劲，用在正事上', desc: '你那股不服输的劲，打算用在哪儿？用在正事上，越难越扛得住；别在小事上较劲耗掉了。' },
+    食神制杀: { line: '压力来了，用巧劲化开', desc: '压力大的时候，硬扛还是巧解？你的赢法是用巧劲管住蛮力，以柔克刚。' },
+  };
   // 引擎格局名 → 花名表里的格（09-30）：去「杂气」；月刃、劫财→阳刃；比肩→建禄；从势格没有花名（外格走引擎释义）
   function huamingKey(name) {
     if (!name) return null;
@@ -84,8 +91,8 @@
   function injectStyle() {
     if (styled) return; styled = true;
     const css = `
-@font-face{font-family:"XbwSerif";src:url(${BASE}fonts/serif-b.woff2?v=20261001n) format("woff2");font-weight:700;font-display:swap}
-@font-face{font-family:"XbwSerif";src:url(${BASE}fonts/serif-m.woff2?v=20261001n) format("woff2");font-weight:500;font-display:swap}
+@font-face{font-family:"XbwSerif";src:url(${BASE}fonts/serif-b.woff2?v=20261004b) format("woff2");font-weight:700;font-display:swap}
+@font-face{font-family:"XbwSerif";src:url(${BASE}fonts/serif-m.woff2?v=20261004b) format("woff2");font-weight:500;font-display:swap}
 .xbi-head{position:relative;text-align:center}
 .xbi-head::before{content:"";position:absolute;left:50%;top:calc(50% + 18px);width:96%;height:118px;transform:translate(-50%,-50%);z-index:-1;pointer-events:none;
   background:radial-gradient(ellipse 50% 50% at 50% 50%,rgba(255,255,255,.9),rgba(255,254,250,.78) 38%,rgba(255,252,246,.4) 64%,rgba(255,250,242,0) 86%)}   /* 她 09-30：白光收小，只托住两行字 */   /* 她 09-30：标题后面要像效果图那样白一大片 */
@@ -163,5 +170,5 @@
     return el;
   }
 
-  g.XuanjiBazi = Object.assign(g.XuanjiBazi || {}, { dayMasterHead, patternCard, patternLabel, huamingOf, DAY_GAN });
+  g.XuanjiBazi = Object.assign(g.XuanjiBazi || {}, { dayMasterHead, patternCard, patternLabel, huamingOf, HUAMING_SOFT, DAY_GAN });
 })(window);

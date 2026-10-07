@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only · 玄玑 xuanji-paipan
 // 生辰 → 排盘 → 接口返回的整份数据
 
-import { baziCalculator, COMMON_BAZI_SHENSHA_NAMES } from 'mingyu-core/bazi';
+import { baziCalculator, COMMON_BAZI_SHENSHA_NAMES, getWuxing } from 'mingyu-core/bazi';
 import { resolveBirthPlace, searchBirthPlaces } from 'mingyu-core/location';
 import { CONFIG_VERSION, SHENSHA_DIMENSIONS } from './config.js';
 import { chartFromMingyu, PILLAR_KEYS } from './chart.js';
 import { fixShenshaTables } from './shenshaFix.js';
-import { fixUsefulGod, isClimateUseful } from './usefulGodFix.js';
+import { fixUsefulGod, isClimateUseful, weakClimate, presentWuxing } from './usefulGodFix.js';
+import { usefulGodForSide, SIDE_STATUS } from './strengthSide.js';
 import { wuxingRing, strengthBasis } from './components/wuxingRing.js';
 import { tenGodBar } from './components/tenGodBar.js';
 import { shenshaPanel } from './components/shensha.js';
@@ -33,8 +34,10 @@ function resolvePlace(city) {
 
 export function parseInput(body) {
   if (!body || typeof body !== 'object') throw new InputError('BAD_REQUEST', '请求体必须是 JSON 对象');
-  const { date, time = null, city, gender, timeMode = 'true_solar' } = body;
+  const { date, time = null, city, gender, timeMode = 'true_solar', strength = null } = body;
   if (!TIME_MODES.includes(timeMode)) throw new InputError('TIME_MODE_INVALID', 'timeMode 只能是 true_solar 或 clock');
+  // 身强身弱的定案（几种判法合判或用户核过的）：喜忌按它取；不传＝照引擎自己的档位
+  if (strength !== null && strength !== '强' && strength !== '弱') throw new InputError('STRENGTH_INVALID', 'strength 只能是 强、弱 或不传');
 
   const m = typeof date === 'string' && date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) throw new InputError('DATE_REQUIRED', '出生日期格式应为 YYYY-MM-DD');
@@ -55,7 +58,7 @@ export function parseInput(body) {
   }
   if (typeof city !== 'string' || !city.trim()) throw new InputError('CITY_REQUIRED', '出生城市必填');
 
-  return { year, month, day, hour, minute, gender, timeMode, place: resolvePlace(city.trim()) };
+  return { year, month, day, hour, minute, gender, timeMode, strength, place: resolvePlace(city.trim()) };
 }
 
 // 时间口径：true_solar＝按出生地经度和均时差校正（默认）；clock＝直接用北京时间（钟表时间，不少排盘软件这样排）
@@ -131,12 +134,27 @@ export function extraScoredShensha(allScopeRaw) {
   );
 }
 
+const usefulGodsOf = (useful, dm) => ({
+  favorableWuxing: useful.favorableWuxing ?? [],
+  unfavorableWuxing: useful.unfavorableWuxing ?? [],
+  primaryFavorableWuxing: useful.primaryFavorableWuxing ?? null,
+  primaryUnfavorableWuxing: useful.primaryUnfavorableWuxing ?? null,
+  useful: useful.useful ?? null,
+  avoid: useful.avoid ?? null,
+  climateUseful: isClimateUseful(useful, dm),   // 用神由调候取、按扶抑本该是忌
+});
+
 export function paipan(body) {
   const input = parseInput(body);
   const raw = runEngine(input, 'common');
   const chart = fixShenshaTables(chartFromMingyu(raw, extraScoredShensha(runEngine(input, 'all'))), runEngine(input, 'common', input.timeMode, 'classical'));
   const analysis = raw.analysis ?? {};
-  const useful = fixUsefulGod(analysis.usefulGod ?? {}, chart.dayMaster.element);
+  // 定案跟引擎方向相反时按定案的档位重取（strengthSide.js）；喜忌、大运吉凶都跟着换，bazi.strength 仍是引擎自己的七档（它是几种判法之一）
+  const side = input.strength ? usefulGodForSide(raw, input.strength) : null;
+  // 外层修正两道：身弱档调候不压扶抑（10-06 规则 v0），再是忌组放回（10-04）
+  const dmWx = chart.dayMaster.element, ctx = { present: presentWuxing(raw), commander: raw.monthCommander ? getWuxing(raw.monthCommander) : null };
+  const own = fixUsefulGod(weakClimate(analysis.usefulGod ?? {}, dmWx, { ...ctx, status: analysis.dayMasterStrength?.status }), dmWx);
+  const useful = side && side.useful ? fixUsefulGod(weakClimate(side.useful, dmWx, { ...ctx, status: SIDE_STATUS[input.strength] }), dmWx) : own;
   const timeKnown = input.hour !== null;
   const t = raw.timing?.enabled ? raw.timing.correctedTime : null;
 
@@ -173,21 +191,17 @@ export function paipan(body) {
       dayMaster: chart.dayMaster,
       strength: analysis.dayMasterStrength?.status ?? '未知',
       strengthBasis: strengthBasis(analysis.dayMasterStrength, timeKnown),
+      // 传了 strength 才有：{ side, status, engine, applied, why }；换了档时多 engineUsefulGods＝引擎自己那套（界面对照旧喜用、出题仍按原盘用）
+      ...(side ? { strengthSide: { ...side.info, ...(side.useful ? { engineUsefulGods: usefulGodsOf(own, chart.dayMaster.element) } : {}) } } : {}),
       pattern: {
         name: analysis.mingGe?.pattern ?? '未知',
         isSpecial: analysis.mingGe?.isSpecial ?? false,
         status: analysis.mingGe?.fulfillment?.status ?? null,
       },
-      usefulGods: {
-        favorableWuxing: useful.favorableWuxing ?? [],
-        unfavorableWuxing: useful.unfavorableWuxing ?? [],
-        primaryFavorableWuxing: useful.primaryFavorableWuxing ?? null,
-        primaryUnfavorableWuxing: useful.primaryUnfavorableWuxing ?? null,
-        useful: useful.useful ?? null,
-        avoid: useful.avoid ?? null,
-        climateUseful: isClimateUseful(useful, chart.dayMaster.element),   // 用神由调候取、按扶抑本该是忌
-      },
-      luck: luckCycles(raw, chart.dayMaster.gan, useful),
+      usefulGods: usefulGodsOf(useful, chart.dayMaster.element),
+      luck: luckCycles(raw, chart.dayMaster.gan, useful, input.year),
+      // 五行旺相休囚死（按月令）：生辰盘最底下一行「土旺 金相 火休 木囚 水死」；强弱投票 v1.3 认成局要用
+      wuxingSeason: raw.wuxingSeasonStatus ?? null,
     },
     components: {
       dayMasterCard: {

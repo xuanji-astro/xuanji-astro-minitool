@@ -27,9 +27,43 @@ const ganzhiOf = (y) => GAN[(y - 4) % 10] + ZHI[(y - 4) % 12];
 
 // 报告里统一用的几块人生
 const DOMAINS = ['感情', '迁移远方', '事业认可', '家庭', '工作', '钱', '自我', '官非', '全局'];
+
+// ── 周岁（10-06 判：大运卡、时间线、学龄三处统一用周岁，共用这一段）──
+// 周岁＝那天的年份减出生年，那年生日还没过再减一。虚岁不进任何用户看得到的地方。
+// 时间线按年算，一年取年底那天（＝这一年过完生日的岁数，跟「核一次」workAge 的 y − 出生年同一口径）；大运卡传交运那天。
+function zhouSui(birthDate, at) {
+  const [by, bm, bd] = String(birthDate).slice(0, 10).split('-').map(Number);
+  const d = typeof at === 'string' ? at.slice(0, 10).split('-').map(Number) : (() => { const l = new Date(at.getTime() + 8 * 36e5); return [l.getUTCFullYear(), l.getUTCMonth() + 1, l.getUTCDate()]; })();   // Date 按北京时间取日子
+  return d[0] - by - (d[1] < bm || (d[1] === bm && d[2] < bd) ? 1 : 0);
+}
+const yearAge = (birthDate, y) => zhouSui(birthDate, `${y}-12-31`);
+// ── 学龄（10-06 定）：22 岁及以下按学业说（context＝学业：工作那块说成学业、考试、升学）；
+//    不满 18 岁：钱、官非、感情整类不出（不是降灰——小孩盘里冒感情危机既不准也不妥）；18～22 岁：钱、感情降灰，官非不出。
+//    取代 v2.1 的「十四岁以下感情灯降灰」。八字、西盘两边一起收，所以同亮、验前事、往后的年份里也不会出现。
+const STAGE = (age) => (age < 18 ? { context: '学业', hide: ['钱', '官非', '感情'], gray: [] } : age <= 22 ? { context: '学业', hide: ['官非'], gray: ['钱', '感情'] } : { context: '职场', hide: [], gray: [] });
+// 不满 18 岁，钱折回家庭（10-06 定）：小孩没有自己的钱，钱上的事就是家里的事——钱的信号 1:1 改记家庭再一起计分（同年合并），
+// 不是扔掉；文案走家庭口径（「家里的钱财有牵动」）。18～22 岁不折（钱照样降灰）。八字在信号这一层改，西盘在领域这一层合。
+const MINOR_MONEY = '（不满 18 岁，钱算家里的）';
+const minorSig = (sig, age) => (age < 18 ? sig.map((x) => (x.domain === '钱' ? { ...x, domain: '家庭', why: x.why + MINOR_MONEY } : x)) : sig);
+function minorWest(wd, age) {
+  if (age >= 18 || !wd['钱']) return wd;
+  const o = { ...wd }, m = o['钱']; delete o['钱'];
+  o['家庭'] = { w: ((o['家庭'] || {}).w || 0) + m.w, own: (o['家庭'] || {}).w || 0, why: [...((o['家庭'] || {}).why || []), ...m.why.map((x) => x + MINOR_MONEY)] };   // own＝原来家庭居所那份：迁移远方借西盘家庭时只认它，钱折进来的不算搬动
+  return o;
+}
+function stageFilter(lit, age, extraGray) {   // lit：{领域: {w,…}}；返回收过的 lit，降灰的领域推进 extraGray（只记 w≥2 的，跟灰灯口径一致）
+  const st = STAGE(age), out = {};
+  for (const [k, v] of Object.entries(lit || {})) {
+    if (st.hide.includes(k)) continue;
+    if (st.gray.includes(k)) { if (extraGray && v.w >= 2 && !extraGray.includes(k)) extraGray.push(k); continue; }
+    out[k] = v;
+  }
+  return out;
+}
 const WEST_TO = { 感情: '感情', 远方: '迁移远方', 家庭居所: '家庭', 事业认可: '事业认可', 工作: '工作', 钱: '钱', 自我: '自我', 全局: '全局' };
 // 八字「迁移远方」也认西盘的「家庭居所」（搬家＝居所动）
 const MIRROR_ALSO = { 迁移远方: ['家庭'] };
+const alsoW = (wd, d) => (MIRROR_ALSO[d] || []).map((k) => (wd[k] ? (wd[k].own != null ? wd[k].own : wd[k].w) : 0));   // 借来的那块只认它本来的分（不满 18 岁钱折进家庭的不算）
 
 function baziYear(bz, sex, y) {
   const P = bz.bazi.pillars, dm = bz.bazi.dayMaster.gan, yz = P.year.zhi, mz = P.month.zhi, dz = P.day ? P.day.zhi : null;
@@ -232,7 +266,15 @@ function baziYearV2(bz, sex, y, opt = {}) {   // v2.1（10-01 定版）：天乙
     else if (sex === 'male' && isCai(t)) { add('钱', 2, 'trigger', `流年天干合日主（${t}来合我）`, false, { gan: dm }); add('感情', 2, 'trigger', `流年天干合日主（男命${t}来合）`, false, { gan: dm }, { side: true, spec: '星' }); }
     else add(isGuan(t) ? '事业认可' : isCai(t) ? '钱' : '自我', 2, 'trigger', `流年天干合日主（${t}来合我）`, false, { gan: dm });
   }
-  for (const [k, nm] of pos) if (k !== 'day' && GAN_HE[g] === P[k].gan && spouse(tg(P[k].gan))) add('感情', 2, 'trigger', `流年合走${nm}的配偶星（有人争合）`, true, { gan: P[k].gan }, { side: true, spec: '星' });
+  // 偏财落点（10-06 定，通用）：宫位定主场、十神定主题，合＝被牵走、有人来争，克＝直接受损；一条信号只记主场。
+  //   年柱、月柱的偏财 → 家庭（父）；时柱的偏财 → 钱（时柱不主父母，偏财也不是正配）。合入日支才落感情（见合日支）。
+  const pianCaiDom = (k) => (k === 'hour' ? '钱' : '家庭');
+  for (const [k, nm] of pos) {
+    if (k === 'day' || GAN_HE[g] !== P[k].gan) continue;
+    const t = tg(P[k].gan);
+    if (t === '偏财') add(pianCaiDom(k), 2, 'trigger', k === 'hour' ? `流年合走${nm}偏财（钱被牵走、有人来争）` : `流年合走${nm}偏财（父）`, true, { gan: P[k].gan });
+    else if (spouse(t)) add('感情', 2, 'trigger', `流年合走${nm}的配偶星（有人争合）`, true, { gan: P[k].gan }, { side: true, spec: '星' });
+  }
   if (cy && gz === cy.ganZhi) add('全局', 2, 'trigger', '岁运并临');
   // ── 大运交接、运年双喜 ──
   const near = bz.bazi.luck.cycles.find((c) => Math.abs(y - c.startYear) <= 1 && c.seq > 1);
@@ -268,6 +310,7 @@ function baziYearV2(bz, sex, y, opt = {}) {   // v2.1（10-01 定版）：天乙
     for (const [k, nm] of pos) if (set.includes(P[k].zhi) && elZ(P[k].zhi) !== el) add(domOf(k, tgz(P[k].zhi)), 1.5, 'link', `${nm}${P[k].zhi}（${tgz(P[k].zhi)}）被${name}合化走`, true, { zhi: P[k].zhi });
   }
   // ── 空亡填实、墓库逢冲、冲克原局 ──
+  let dayPianCai = false;   // 日支本气偏财被冲（钱作辅要用）
   const kw = (P.day.kongWang || []);
   for (const [k, nm] of pos) if (kw.includes(P[k].zhi) && z === P[k].zhi) add(domOf(k, tgz(P[k].zhi)), 1.5, 'link', `空亡填实（${nm}${P[k].zhi}落空，流年填出）`, false, { zhi: P[k].zhi });
   for (const [k, nm] of pos) {
@@ -280,13 +323,22 @@ function baziYearV2(bz, sex, y, opt = {}) {   // v2.1（10-01 定版）：天乙
   for (const [k, nm] of pos) {
     const t = tgz(P[k].zhi);
     if (!CHONG(z, P[k].zhi)) continue;
-    if (spouse(t) && k !== 'day') add('感情', 1.5, 'link', `流年冲走${nm}配偶星的根`, true, { zhi: P[k].zhi }, { spec: '星' });
-    if (t === '偏财' || t === '正印') add('家庭', 1.5, 'link', `流年冲${nm}${t}（${t === '偏财' ? '父' : '母'}）`, true, { zhi: P[k].zhi });
-    if (isCai(t)) add('钱', 1.5, 'link', `流年冲${nm}财星本气（财根被拔）`, true, { zhi: P[k].zhi });
+    if (t === '偏财') {   // 偏财落点：年、月柱→家庭（父），时柱→钱，日柱→感情（夫妻宫动，10-06 判）；只记主场
+      if (k === 'hour') add('钱', 1.5, 'link', `流年冲${nm}偏财本气（财根被拔）`, true, { zhi: P[k].zhi });
+      else if (k === 'day') { add('感情', 1.5, 'link', '流年冲日支偏财（夫妻宫动）', true, { zhi: P[k].zhi }, { spec: '宫' }); dayPianCai = true; }
+      else add('家庭', 1.5, 'link', `流年冲${nm}偏财（父）`, true, { zhi: P[k].zhi });
+    } else {
+      if (spouse(t) && k !== 'day') add('感情', 1.5, 'link', `流年冲走${nm}配偶星的根`, true, { zhi: P[k].zhi }, { spec: '星' });
+      if (t === '偏财' || t === '正印') add('家庭', 1.5, 'link', `流年冲${nm}${t}（${t === '偏财' ? '父' : '母'}）`, true, { zhi: P[k].zhi });
+      if (isCai(t)) add('钱', 1.5, 'link', `流年冲${nm}财星本气（财根被拔）`, true, { zhi: P[k].zhi });
+    }
     if (isGuan(t)) add(['工作', '事业认可'], 1.5, 'link', `流年冲${nm}官杀星（工作被动）`, false, { zhi: P[k].zhi });
   }
   for (const [k, nm] of pos) if (k !== 'day' && HE6[z] === P[k].zhi && isGuan(tgz(P[k].zhi))) add(['工作', '事业认可'], 1.5, 'link', `流年合${nm}官杀星（调动、新机会）`, false, { zhi: P[k].zhi });
-  for (const [k, nm] of pos) if (GANKE(g, P[k].gan) && KE[elG(g)] === elG(P[k].gan) && (tg(P[k].gan) === '偏财' || tg(P[k].gan) === '正印') && k !== 'day') add('家庭', 1.5, 'link', `流年天干克${nm}透出的${tg(P[k].gan)}`, true, { gan: P[k].gan });
+  for (const [k, nm] of pos) if (GANKE(g, P[k].gan) && KE[elG(g)] === elG(P[k].gan) && (tg(P[k].gan) === '偏财' || tg(P[k].gan) === '正印') && k !== 'day') {
+    if (tg(P[k].gan) === '偏财' && k === 'hour') add('钱', 1.5, 'link', `流年天干克${nm}透出的偏财（破财、花销）`, true, { gan: P[k].gan });   // 偏财落点：时柱→钱
+    else add('家庭', 1.5, 'link', `流年天干克${nm}透出的${tg(P[k].gan)}${tg(P[k].gan) === '偏财' ? '（父）' : ''}`, true, { gan: P[k].gan });
+  }
   // ── 官非 ──
   const hasZG = natalTen.includes('正官'), hasSG = natalTen.includes('伤官');
   if ((hasZG && sg === '伤官') || (hasSG && sg === '正官')) add('官非', 2.5, 'trigger', sg === '伤官' ? '伤官见官（原局正官，流年透伤官）' : '伤官见官（原局伤官，流年正官来填）', true);
@@ -305,9 +357,11 @@ function baziYearV2(bz, sex, y, opt = {}) {   // v2.1（10-01 定版）：天乙
   const tianyi = (TIANYI[dm] || []).includes(z) || (TIANYI[P.year.gan] || []).includes(z);
   if (opt.loose ? tianyi && (isGuan(sg) || isGuan(sz)) : (TIANYI[dm] || []).includes(z) && isGuan(sg)) add('事业认可', 1.5, 'link', '天乙贵人叠官星（贵人引荐、官方认可）');
   if (z === LU[dm] && luckG && ((isGuan(sg) && isYin(tg(luckG))) || (isYin(sg) && isGuan(tg(luckG))))) add('事业认可', 1.5, 'link', '禄带官印（名至实归）');
+  // 日支偏财被冲，钱作辅不堆：这一年另有钱的扳机级／联动级信号，才带 0.5（弱信号，自己开不了闸）
+  if (dayPianCai && sig.some((x) => x.domain === '钱' && (x.cls === 'trigger' || x.cls === 'link'))) add('钱', 0.5, 'weak', '流年冲日支偏财（钱作辅）', true, { zhi: dz });
   // ── 弱信号：刑害全四柱 ──
   const FAC = { day: 1, month: 0.75, hour: 0.75, year: 0.5 };
-  if (HE6[z] === dz) add('感情', 1, 'weak', '流年合日支', false, { zhi: dz }, { spec: '宫' });
+  if (HE6[z] === dz) add('感情', 0.5, 'weak', '流年合日支', false, { zhi: dz }, { spec: '宫' });   // 10-06：宫动只说明关系有牵动，单独不亮（弱信号开不了闸），记 0.5 等佐证
   for (const [k, nm] of pos) {
     const zk = P[k].zhi, dom = k === 'day' ? ['感情'] : domOf(k, tgz(zk)), opt = k === 'day' ? { spec: '宫' } : {};
     if (XING_SYM(z, zk)) add(dom, 1 * FAC[k], 'weak', `流年刑${nm}${zk}`, false, { zhi: zk }, opt);
@@ -343,7 +397,7 @@ function baziYearV2(bz, sex, y, opt = {}) {   // v2.1（10-01 定版）：天乙
   const yr = cy && cy.years.find((v) => v.year === y);
   return { gz, shishen: [sg, sz], tier: yr ? yr.tier : null, score: yr ? yr.score : null, luck: cy ? cy.ganZhi : null, sig: kept, dropped, young };
 }
-// v2 分组：同 v1 铁闸；十四岁以下感情灯不出（进灰灯）
+// v2 分组：同 v1 铁闸（十四岁以下感情降灰已由学龄规则取代，见 stageFilter）
 function groupV2(r, opt = {}) {
   const o = groupV1(r.sig);
   // 实验门槛（v2.1 A/B）：≥2.5 且含扳机级，或 ≥3 且含联动级；不满足的从明灯降掉（分数留着，进灰灯判断）
@@ -351,9 +405,7 @@ function groupV2(r, opt = {}) {
     const cls = r.sig.filter((x) => x.domain === d).map((x) => x.cls);
     if (!((v.w >= 2.5 && cls.includes('trigger')) || (v.w >= 3 && cls.includes('link')))) v.w = Math.min(v.w, 2.49);
   }
-  const gray = [];
-  if (r.young && o['感情']) { gray.push('感情'); delete o['感情']; }
-  return { lit: o, gray };
+  return { lit: o, gray: [] };
 }
 
 function group(sig) { const o = {}; for (const s of sig) { (o[s.domain] = o[s.domain] || { w: 0, why: [] }); o[s.domain].w += s.w; o[s.domain].why.push(s.why); } return o; }
@@ -405,19 +457,33 @@ function liuyue(bz, sex, y, lit, sig) {
 
 function timing(bz, N, sex, now = new Date(), opt = {}) {   // opt.lite：合盘只要逐年，不算月历和一生周期
   if (!bz || bz.status !== 'ok') return null;
-  const birthY = +bz.input.date.slice(0, 4), nowY = now.getFullYear(), from = birthY + 12, to = nowY + 9;   // 往后十年（10-02 定）
+  const birthD = bz.input.date, birthY = +birthD.slice(0, 4), nowY = now.getFullYear(), from = birthY + 12, to = nowY + 9;   // 往后十年（10-02 定）
   const W = N ? westYearlyV1(N, birthY, from, to, 2).years : {};
   const years = [];
   for (let y = from; y <= to; y++) {
-    const b = baziYearV2(bz, sex, y), g2 = groupV2(b), bd = g2.lit, wd = {};   // v2.1（10-01 定版，v1 退役）
-    for (const [k, v] of Object.entries(W[y] || {})) { const dom = WEST_TO[k] || k; (wd[dom] = wd[dom] || { w: 0, why: [] }); wd[dom].w += v.w; wd[dom].why.push(...v.why); }
+    const age = yearAge(birthD, y), stageGray = [];
+    const b0 = baziYearV2(bz, sex, y), b = { ...b0, sig: minorSig(b0.sig, age) }, bd = stageFilter(groupV2(b).lit, age, stageGray), wd0 = {};   // v2.1（10-01 定版，v1 退役）；学龄两边一起收，不满 18 岁钱折回家庭
+    for (const [k, v] of Object.entries(W[y] || {})) { const dom = WEST_TO[k] || k; (wd0[dom] = wd0[dom] || { w: 0, why: [] }); wd0[dom].w += v.w; wd0[dom].why.push(...v.why); }
+    const wd = stageFilter(minorWest(wd0, age), age, stageGray);
     const mirror = [];
     for (const dom of DOMAINS) {
-      const bw = (bd[dom] || {}).w || 0, ww = Math.max((wd[dom] || {}).w || 0, ...(MIRROR_ALSO[dom] || []).map((k) => (wd[k] || {}).w || 0));
+      const bw = (bd[dom] || {}).w || 0, ww = Math.max((wd[dom] || {}).w || 0, ...alsoW(wd, dom));
       if (bw >= 2 && ww >= 2) mirror.push(dom);
     }
-    const gray = [...Object.entries(bd).filter(([, v]) => v.w >= 2 && v.w < 2.5).map(([k]) => k), ...g2.gray];   // 灰灯只进内部分析和回溯；十四岁以下的感情灯也进灰灯
-    years.push({ year: y, age: y - birthY, gan_zhi: b.gz, luck: b.luck, tier: b.tier, score: b.score, bazi: bd, west: wd, mirror, gray });
+    const gray = [...new Set([...Object.entries(bd).filter(([, v]) => v.w >= 2 && v.w < 2.5).map(([k]) => k), ...stageGray])];   // 灰灯只进内部分析和回溯；18～22 岁的钱、感情也进灰灯
+    // 换挡年（10-06 改定）：交脱大运当年和前后一年里的「弱同亮」——八字和西盘在同一块都 ≥1.5，单列提示「大运交替，诸事换挡，易有变动」，不混进同亮。
+    // （原先「任一边 ≥1.5」等于交脱三年全标，占全部年份近三成。）交脱那条信号本身不算；全局不算；同亮了的那块不重复列。非交脱年门槛不动。
+    const near = bz.bazi.luck.cycles.find((c) => Math.abs(y - c.startYear) <= 1 && c.seq > 1);
+    let shift = null;
+    if (near) {
+      const bx = stageFilter(groupV1(b.sig.filter((x) => !/^交脱大运/.test(x.why))), age);
+      const doms = DOMAINS.filter((d) => d !== '全局' && !mirror.includes(d) && ((bx[d] || {}).w || 0) >= 1.5 && Math.max((wd[d] || {}).w || 0, ...alsoW(wd, d)) >= 1.5);
+      if (doms.length) shift = { luck: near.ganZhi, when: y === near.startYear ? '当年' : y < near.startYear ? '前一年' : '后一年', domains: doms, note: '大运交替，诸事换挡，易有变动' };
+    }
+    const ctx = STAGE(age).context;
+    // 学业年份的原因句按学业说（a2 10-06：学生盘上还写「月令：工作、家庭」「工作被动」）：只改句子，领域名「工作」不动（界面对照表认它）
+    const asStudy = (lit) => (ctx === '学业' ? Object.fromEntries(Object.entries(lit).map(([k, v]) => [k, { ...v, why: v.why.map((x) => x.replace(/工作/g, '学业')) }])) : lit);
+    years.push({ year: y, age, context: ctx, gan_zhi: b.gz, luck: b.luck, tier: b.tier, score: b.score, bazi: asStudy(bd), west: asStudy(wd), mirror, gray, shift });
   }
   const round = (x) => Math.round(x * 10) / 10;
   const cand = [];
@@ -430,7 +496,7 @@ function timing(bz, N, sex, now = new Date(), opt = {}) {   // opt.lite：合盘
   // 八字流月：近三年里流年已亮灯（明灯）的领域
   const monthsBazi = [];
   for (let y = nowY; y <= nowY + 2 && !opt.lite; y++) {
-    const b = baziYearV2(bz, sex, y), bd = groupV2(b).lit, lit = Object.keys(bd).filter((k) => bd[k].w >= 2.5 && k !== '全局');
+    const ag = yearAge(birthD, y), b0 = baziYearV2(bz, sex, y), b = { ...b0, sig: minorSig(b0.sig, ag) }, bd = stageFilter(groupV2(b).lit, ag), lit = Object.keys(bd).filter((k) => bd[k].w >= 2.5 && k !== '全局');
     const ly = lit.length ? liuyue(bz, sex, y, lit, b.sig) : [];
     if (ly.length) monthsBazi.push({ year: y, gan_zhi: b.gz, domains: ly });
   }
@@ -444,12 +510,23 @@ function timing(bz, N, sex, now = new Date(), opt = {}) {   // opt.lite：合盘
   }
   return {
     schema: 'xuanji.timing/0.4',
-    note: '八字应期 v2.1（10-01 定版：主从记账、成局双向、刑害全四柱、官非／事业开局／名分新规则、迁移合成、十四岁以下感情灯降灰）＋西盘行运 v1；past_candidates 只给两套同亮的年份（验前事只说双轨同亮）；mirror＝两套同一年同一块人生都亮；years 到今年＋9；months＝近三年西盘月历（只列窗口不打分）；months_bazi＝近三年八字流月高发月（流月 v1，只细化已亮灯的流年）；life_cycles＝一生西盘大周期',
+    note: '八字应期 v2.1（10-01 定版：主从记账、成局双向、刑害全四柱、官非／事业开局／名分新规则、迁移合成）＋10-06 粉丝反馈修正（学龄：22 岁及以下 context＝学业，不满 18 岁钱折回家庭（1:1 同年合并）、官非／感情不出，18～22 岁钱／感情降灰、官非不出；换挡年 shift＝交脱窗口内的弱同亮（同一块两边都 ≥1.5）；合日支 0.5 单独不亮；偏财落点：年月柱→家庭（父）、时柱→钱、日柱被冲→感情）＋西盘行运 v1；age＝周岁（那年过完生日）；past_candidates 只给两套同亮的年份（验前事只说双轨同亮）；mirror＝两套同一年同一块人生都亮；years 到今年＋9；months＝近三年西盘月历（只列窗口不打分）；months_bazi＝近三年八字流月高发月（流月 v1，只细化已亮灯的流年）；life_cycles＝一生西盘大周期',
     months, months_bazi: monthsBazi, life_cycles: life,
     years: years.map((r) => ({ ...r, bazi: Object.fromEntries(Object.entries(r.bazi).map(([k, v]) => [k, { w: round(v.w), why: v.why, neg: !!v.neg }])), west: Object.fromEntries(Object.entries(r.west).map(([k, v]) => [k, { w: round(v.w), why: v.why }])) })),
     past_candidates: cand.filter((c) => c.year < nowY && c.mirror).sort(byStrength).slice(0, 8),
     future: cand.filter((c) => c.year >= nowY).sort((a, b) => a.year - b.year || byStrength(a, b)),
+    shift_years: years.filter((r) => r.shift).map((r) => ({ year: r.year, age: r.age, context: r.context, ...r.shift })),   // 换挡年：单列，不进同亮
   };
 }
 
-module.exports = { timing, baziYear, baziYearV1, baziYearV2, group, groupV1, groupV2, shishen };
+// 只要几年的八字亮灯（出题用）：跟 timing().years[].bazi 同一算法、同样取一位小数
+function baziLights(bz, sex, from, to) {   // 学龄照样收：小孩的年份不拿钱、官非、感情出题
+  const round = (x) => Math.round(x * 10) / 10, out = [], bd0 = bz.input && bz.input.date;
+  for (let y = from; y <= to; y++) {
+    const ag = bd0 ? yearAge(bd0, y) : 99, b0 = baziYearV2(bz, sex, y), lit = groupV2({ ...b0, sig: minorSig(b0.sig, ag) }).lit;
+    out.push({ year: y, bazi: Object.fromEntries(Object.entries(bd0 ? stageFilter(lit, ag) : lit).map(([k, v]) => [k, { w: round(v.w), why: v.why, neg: !!v.neg }])) });
+  }
+  return out;
+}
+
+module.exports = { timing, baziLights, baziYear, baziYearV1, baziYearV2, group, groupV1, groupV2, shishen, zhouSui, yearAge, STAGE };

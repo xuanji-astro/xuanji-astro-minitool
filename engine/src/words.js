@@ -27,6 +27,7 @@ function fit(favorable, dayMaster, gender) {
 module.exports = {
   DAY_GAN: B.DAY_GAN,
   huamingOf: B.huamingOf,
+  huamingSoft: B.HUAMING_SOFT || {},
   patternLabel: B.patternLabel,
   luckWords: B.luckWords,
   shenshaWords: B.shenshaWords,

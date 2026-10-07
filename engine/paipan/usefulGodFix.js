@@ -9,7 +9,7 @@
 //   调候序列   ← strategyTrace 里引擎写的「调候优先:火 -> 木 -> 水」（引擎原样拼出的完整序列）
 // 两样对不上（例如引擎升级改了写法）就不动，测试会报出来。
 
-import { BASIC_MAPPINGS } from 'mingyu-core/bazi';
+import { BASIC_MAPPINGS, getWuxing } from 'mingyu-core/bazi';
 
 const SHENG = BASIC_MAPPINGS.WUXING_SHENG; // 我生
 const KE = BASIC_MAPPINGS.WUXING_KE; // 我克
@@ -71,6 +71,49 @@ export function fixUsefulGod(useful, dm) {
     primaryUseful: labelOf(dm, favorableWuxing[0]),
     primaryAvoid: labelOf(dm, back),
     strategyTrace: [...(useful.strategyTrace ?? []), `忌组放回:${back}（调候挪空忌组，取调候序列末位）`],
+  };
+}
+
+// 10-06 定（规则 v0）：身弱档调候不许压扶抑。mingyu-core 的调候一步不跟扶抑比输赢，直接把调候字挪进喜的最前、从忌里删掉；
+// 身强档这样没问题（身能任泄），身弱档等于往弱身上再泄。所以普通格局、身弱档（偏弱／身弱／极弱，含按定案换到身弱档）
+// 调候生效时，喜忌按扶抑重排，调候字按它对日主的作用处理：
+//   帮身（印、比劫）：本来就在扶抑的喜里，照旧，但不抢首位（排在扶抑喜神之后作次席）；
+//   泄耗（食伤、财）：不进喜，回到忌；
+//   克身（官杀）：局里有印通关（四柱天干、地支本气见印）作次喜，排在扶抑喜神之后；没有印就不进喜。
+// 扶抑的喜＝印、比劫，月令司令在其中就排最前（同引擎的司令排序）；忌＝食伤、财、官杀里没进喜的，顺序同引擎。身强档、特殊格局不动。
+// 调候提示（取用层次、病药提示）照旧留在 strategyTrace 里。
+const WEAK = /弱|衰/;
+export function presentWuxing(raw) {
+  const P = raw?.pillars ?? {}, out = new Set();
+  for (const k of ['year', 'month', 'day', 'hour']) for (const x of [P[k]?.gan, P[k]?.zhi]) if (x) out.add(getWuxing(x));
+  return out;
+}
+export function weakClimate(useful, dm, { status, present, commander } = {}) {
+  if (!useful || !dm || !WEAK.test(status ?? '') || useful.matchedRules?.[0]?.id !== 'balance-weak') return useful;
+  const order = climateOrderOf(useful);
+  if (!order.length) return useful;
+  const g = groupsOf(dm), hasYin = !!present?.has(g.resource);
+  const kind = (wx) => (wx === g.resource || wx === g.companion ? 'help' : wx === g.officer ? 'ctrl' : 'drain');
+  const held = order.filter((wx) => kind(wx) === 'drain' || (kind(wx) === 'ctrl' && !hasYin));
+  const second = order.filter((wx) => kind(wx) === 'ctrl' && hasYin);
+  let fav = [g.resource, g.companion];
+  if (commander && fav.includes(commander)) fav = [commander, ...fav.filter((wx) => wx !== commander)];
+  fav = [...fav, ...second.filter((wx) => !fav.includes(wx))];
+  const unfav = [g.output, g.wealth, g.officer].filter((wx) => !fav.includes(wx));
+  if (fav.join() === (useful.favorableWuxing ?? []).join() && unfav.join() === (useful.unfavorableWuxing ?? []).join()) return useful;
+  return {
+    ...useful,
+    favorableWuxing: fav,
+    unfavorableWuxing: unfav,
+    primaryFavorableWuxing: fav[0],
+    secondaryFavorableWuxing: fav.slice(1),
+    primaryUnfavorableWuxing: unfav[0],
+    secondaryUnfavorableWuxing: unfav.slice(1),
+    useful: labelOf(dm, fav[0]),
+    avoid: labelOf(dm, unfav[0]),
+    primaryUseful: labelOf(dm, fav[0]),
+    primaryAvoid: labelOf(dm, unfav[0]),
+    strategyTrace: [...(useful.strategyTrace ?? []), `身弱调候不压扶抑（规则 v0）：${[held.length ? `${held.join('')}不进喜` : '', second.length ? `${second.join('')}有印通关作次喜` : ''].filter(Boolean).join('，') || '调候字帮身，排在扶抑之后'}；最终取用:${fav.join(' -> ')}`],
   };
 }
 

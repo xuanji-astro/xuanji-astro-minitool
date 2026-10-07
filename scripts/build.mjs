@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const E = path.join(ROOT, 'engine'), B = path.join(ROOT, 'browser');
 // zip 里只能放网页类文件（没有 LICENSE.txt 的位置），许可声明放在两个脚本头上，方法页另有一行
-const BANNER = '/*! 执天玄玑 xuanji-astro-minitool · AGPL-3.0-only · 源码见 GitHub 仓库 xuanji-astro-minitool · 第三方：mingyu-core AGPL-3.0，Astronomy Engine MIT，tyme4ts MIT，易奇旺衰分 MIT */';
+const BANNER = '/*! 执天玄玑 xuanji-astro-minitool · AGPL-3.0-only · 源码见 GitHub 仓库 xuanji-astro-minitool · 第三方：mingyu-core AGPL-3.0，Astronomy Engine MIT，tyme4ts MIT，易奇旺衰分 MIT；定时辰打分 Xuanji Skill Apache-2.0 */';
 const PKG = process.argv[2] || path.join(ROOT, 'dist', 'pkg');   // 小工具包根（index.html 在这一层）
 const OUT = path.join(PKG, 'engine');
 fs.rmSync(PKG, { recursive: true, force: true }); fs.mkdirSync(OUT, { recursive: true });
@@ -38,6 +38,10 @@ const plugin = {
     b.onResolve({ filter: /^(fs|vm|path)$/ }, (a) => ({ path: path.join(B, `shim_${a.path}.js`) }));
     b.onResolve({ filter: /^\.\/engines\.js$/ }, (a) => (a.importer.startsWith(path.join(E, 'src')) ? { path: path.join(B, 'engines.browser.js') } : undefined));
     b.onResolve({ filter: /^xjwrap:/ }, (a) => ({ path: a.path.slice(7), namespace: 'xjwrap' }));
+    // Skill 的定时辰脚本：只用它的打分函数；命令行入口、读写本地文件、接口客户端在浏览器里用垫片顶（打分代码一字不改）
+    const SK = path.join(E, 'skill');
+    b.onResolve({ filter: /^node:(url|fs)$/ }, (a) => (a.importer.startsWith(SK) ? { path: path.join(B, `shim_skill_${a.path.slice(5)}.js`) } : undefined));
+    b.onResolve({ filter: /^\.\/(private_files|client)\.mjs$/ }, (a) => (a.importer.startsWith(SK) ? { path: path.join(B, `shim_skill_${a.path.slice(2, -4)}.js`) } : undefined));
     b.onLoad({ filter: /.*/, namespace: 'xjwrap' }, (a) => ({ contents: wrap(a.path), loader: 'js', resolveDir: E }));
   },
 };
@@ -50,7 +54,8 @@ const r = await esbuild.build({
   entryPoints: [path.join(B, 'entry.js')], bundle: true, format: 'iife', platform: 'browser', target: ['es2020'],
   minify: true, legalComments: 'eof', banner: { js: BANNER }, charset: 'utf8', nodePaths: nm, plugins: [plugin], metafile: true,
   // 服务端用 __dirname 拼 vendor 路径；浏览器里只要文件名对得上 shim_vm
-  define: { XJ_VERSION: JSON.stringify(VERSION), __dirname: '"engine/src"' }, outfile: path.join(OUT, 'xj_engine.js'), logLevel: 'warning',
+  // process.argv、import.meta.url：rectify.mjs 末尾的命令行入口判断，浏览器里恒为假
+  define: { XJ_VERSION: JSON.stringify(VERSION), __dirname: '"engine/src"', 'process.argv': '[]', 'import.meta.url': '""' }, outfile: path.join(OUT, 'xj_engine.js'), logLevel: 'warning',
 });
 const out = fs.readFileSync(path.join(OUT, 'xj_engine.js'), 'utf8');
 const banned = ['fetch(', 'XMLHttpRequest', 'new Function', 'eval(', 'WebAssembly', 'new Worker', 'importScripts', 'navigator.clipboard', 'window.open('].filter((s) => out.includes(s));
