@@ -500,3 +500,31 @@ body.scrolled::before { opacity: 1; }
 .rt-rit .dt { font-size: 12px; color: var(--faint); letter-spacing: .2em; }
 .rt-rit .rt-go { margin-top: 28px; }
 .rt-mark.md { width: 34px; height: 34px; } .rt-cseal { position: absolute; right: 18px; top: 64px; z-index: 3; }
+
+/* 身强身弱校正（10-10 起，照网站校正页：8 道题＋大事＋结果四格）、你说的大事（跟定时辰共用）、定时辰补问的「比如」和追问 */
+.pe { padding: 14px 0; border-top: 1px dashed var(--dash); }
+.pe:first-child { border-top: 0; padding-top: 0; }
+.pe-h { display: flex; align-items: center; justify-content: space-between; }
+.pe-h b { font-family: var(--serif); font-weight: 600; font-size: 16px; color: var(--ink); }
+.pe-x { width: 28px; height: 28px; border-radius: 50%; color: var(--faint); font-size: 18px; line-height: 28px; text-align: center; }
+.pe .lab { display: block; margin: 12px 0 6px; }
+.pe .chips { gap: 6px; }
+.pe .chip { height: 32px; padding: 0 11px; font-size: 13px; }
+.pe-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.pe-gb .chip { flex: 1; text-align: center; }
+.node-s { font-size: 13px; color: var(--sub); margin: -6px 0 10px; line-height: 1.6; }
+.rt-fu { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--dash); }
+.rt-fu > span { display: block; font-size: 13.5px; color: var(--body); margin-bottom: 8px; }
+.ans-row.two { grid-template-columns: repeat(2, 1fr); }
+.cal-res { padding: 18px 16px; }
+.cal-rh { display: flex; align-items: center; justify-content: space-between; color: var(--sub); font-size: 14px; }
+.cal-rh .fe-again { margin-top: 0; }
+.cal-type { font-family: var(--serif); font-weight: 600; font-size: 24px; color: var(--ink); text-align: center; margin: 14px 0 12px; letter-spacing: .06em; }
+.cal-g4 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
+.cal-g4 > div { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: #fff; }
+.cal-g4 b { display: block; font-size: 13px; color: var(--accent); letter-spacing: .08em; }
+.cal-g4 p { font-size: 13.5px; color: var(--ink); line-height: 1.6; margin-top: 4px; }
+.cal-res.none { text-align: center; }
+.cal-nav { display: grid; grid-template-columns: 1fr 2fr; gap: 10px; align-items: center; margin-top: 18px; }
+.cal-nav .fe-skip { margin-top: 0; }
+.v > .card.cal-res, .v > .cal-nav { margin-top: 14px; }

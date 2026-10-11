@@ -5,7 +5,7 @@ import { HIDDEN_STEMS, getTenGod, getWuxing } from 'mingyu-core/bazi';
 import { LUCK_SCORE, LUCK_TIERS, TEN_GOD_GROUPS } from '../config.js';
 import { tierOf } from './shensha.js';
 
-function xiJiOf(stem, useful, cfg) {
+export function xiJiOf(stem, useful, cfg) {
   const el = getWuxing(stem);
   if (el === useful.primaryFavorableWuxing) return cfg.xiJi.primaryFavorable;
   if (useful.favorableWuxing.includes(el)) return cfg.xiJi.favorable;
@@ -14,7 +14,7 @@ function xiJiOf(stem, useful, cfg) {
   return 0;
 }
 
-function tenGodOf(stem, dayGan, useful, cfg) {
+export function tenGodOf(stem, dayGan, useful, cfg) {
   const god = getTenGod(stem, dayGan);
   if (TEN_GOD_GROUPS[useful.useful]?.includes(god)) return cfg.tenGod.useful;
   if (TEN_GOD_GROUPS[useful.avoid]?.includes(god)) return cfg.tenGod.avoid;

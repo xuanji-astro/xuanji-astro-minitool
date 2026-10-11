@@ -96,7 +96,7 @@ function baziYear(bz, sex, y) {
   if (cy && gz === cy.ganZhi) add('全局', 2, '岁运并临');
   if (cy && y === cy.startYear) add('全局', 1.5, '换大运（' + cy.ganZhi + '）');
   const yr = cy && cy.years.find((v) => v.year === y);
-  return { gz, shishen: [sg, sz], tier: yr ? yr.tier : null, score: yr ? yr.score : null, luck: cy ? cy.ganZhi : null, sig };
+  return { gz, shishen: [sg, sz], tier: yr ? yr.tier : null, score: yr ? yr.score : null, luck: cy ? cy.ganZhi : null, turn: yr && yr.turn ? yr.turn : null, sig };
 }
 
 // ── 八字应期 v1（2026-10-01 审回）：流年不造事，只引动原局 ──
@@ -205,7 +205,7 @@ function baziYearV1(bz, sex, y) {
     for (const s of sig) if (boost.has(s.domain) && (s.cls === 'trigger' || s.cls === 'link')) { s.w *= 1.5; s.why += '（大运冲动该宫，×1.5）'; }
   }
   const yr = cy && cy.years.find((v) => v.year === y);
-  return { gz, shishen: [sg, sz], tier: yr ? yr.tier : null, score: yr ? yr.score : null, luck: cy ? cy.ganZhi : null, sig };
+  return { gz, shishen: [sg, sz], tier: yr ? yr.tier : null, score: yr ? yr.score : null, luck: cy ? cy.ganZhi : null, turn: yr && yr.turn ? yr.turn : null, sig };
 }
 
 // v1 分组：领域里没有扳机级或联动级信号的，不成立（主题、气氛不许单独凑分）
@@ -234,7 +234,7 @@ function baziYearV2(bz, sex, y, opt = {}) {   // v2.1（10-01 定版）：天乙
   const gz = ganzhiOf(y), g = gz[0], z = gz[1], sig = [];
   const birthY = +bz.input.date.slice(0, 4), young = y - birthY < 14;
   const strong = /强|旺/.test(bz.bazi.strength || ''), weak = /弱|衰/.test(bz.bazi.strength || '');
-  const fav = new Set(bz.bazi.usefulGods.favorableWuxing || []), unfav = new Set(bz.bazi.usefulGods.unfavorableWuxing || []);
+  // 10-07（多派交叉论证）：事件层只说哪年哪块在动，不借任何一派的喜忌；吉凶交给投票选出的那一派上色
   // opt：side＝旁领域要佐证；spec＝感情专指（kind：宫／星／鸾）
   const add = (domains, w, cls, why, neg, hit, opt = {}) => { for (const d of [].concat(domains)) sig.push({ domain: d, w, cls, why, neg: !!neg, hit: hit || null, side: !!opt.side, spec: opt.spec || null }); };
   const tg = (stem) => shishen(dm, stem), tgz = (zhi) => shishen(dm, MAINQI[zhi]);
@@ -279,9 +279,8 @@ function baziYearV2(bz, sex, y, opt = {}) {   // v2.1（10-01 定版）：天乙
   // ── 大运交接、运年双喜 ──
   const near = bz.bazi.luck.cycles.find((c) => Math.abs(y - c.startYear) <= 1 && c.seq > 1);
   const elG = (x) => ELEM_OF_GAN(x), elZ = (x) => ELEM_OF_GAN(MAINQI[x]);
-  const shuangxi = cy && cy.seq > 1 && y - cy.startYear >= 0 && y - cy.startYear <= 1 && (fav.has(elG(luckG)) || fav.has(elZ(luckZ))) && (opt.loose ? fav.has(elG(g)) || fav.has(elZ(z)) : fav.has(elG(g)));   // v2.1：大运干或支任一喜用＋当年流年（天干）十神为喜用
-  if (near) add(shuangxi ? ['全局'] : ['全局', '工作'], 1.5, 'link', `交脱大运（${near.ganZhi}）${y === near.startYear ? '当年' : '前后一年'}`);
-  if (shuangxi) add('工作', 1.5, 'link', `运年双喜（换入喜用大运${cy.ganZhi}后第${y - cy.startYear + 1}年，流年再扶喜用）`);
+  // 「运年双喜」（换入喜用大运头两年、流年再扶喜用→工作加 1.5）10-07 撤掉：它借了喜忌
+  if (near) add(['全局', '工作'], 1.5, 'link', `交脱大运（${near.ganZhi}）${y === near.startYear ? '当年' : '前后一年'}`);
   // ── 迁移：冲年支＋驿马同年合成 ──
   const maSet = new Set([MA[dz], MA[P.year.zhi]]);
   const maChong = pos.filter(([k]) => maSet.has(P[k].zhi) && CHONG(z, P[k].zhi));
@@ -302,11 +301,10 @@ function baziYearV2(bz, sex, y, opt = {}) {   // v2.1（10-01 定版）：天乙
     const have = new Set([z, luckZ, ...natalZ].filter(Boolean));
     if (!set.every((x) => have.has(x)) || set.every((x) => natalZ.includes(x))) continue;
     const cat = catOf(el), name = `${a}${b}${c}${SANHE.some((r) => r[3] === el && r[0] === a) ? '三合' : '三会'}${el}局`;
-    const jiJu = unfav.has(el) && ['比劫', '官杀', '食伤'].includes(cat);
     if (el === spouseEl) add('感情', 1.5, 'link', `流年成${name}，化出配偶星`, false, null, { spec: '星' });
     const dom = cat === '比劫' ? '钱' : cat === '印' ? '事业认可' : cat === '食伤' ? '工作' : cat === '财' ? '钱' : '事业认可';
-    if (!(el === spouseEl && dom === '感情')) add(dom, 1.5, 'link', `流年成${name}，化出${cat}${jiJu ? '（忌神局）' : ''}`, jiJu || cat === '比劫');
-    if (jiJu) add('官非', 1.5, 'link', `化出忌神${cat}局（${name}）`, true);
+    // 「忌神局」（化出的局是忌神→负向、另点亮官非）10-07 撤掉：它借了喜忌；比劫成局争财照旧记负向（取象本身）
+    if (!(el === spouseEl && dom === '感情')) add(dom, 1.5, 'link', `流年成${name}，化出${cat}`, cat === '比劫');
     for (const [k, nm] of pos) if (set.includes(P[k].zhi) && elZ(P[k].zhi) !== el) add(domOf(k, tgz(P[k].zhi)), 1.5, 'link', `${nm}${P[k].zhi}（${tgz(P[k].zhi)}）被${name}合化走`, true, { zhi: P[k].zhi });
   }
   // ── 空亡填实、墓库逢冲、冲克原局 ──
@@ -395,7 +393,7 @@ function baziYearV2(bz, sex, y, opt = {}) {   // v2.1（10-01 定版）：天乙
     return ok;
   });
   const yr = cy && cy.years.find((v) => v.year === y);
-  return { gz, shishen: [sg, sz], tier: yr ? yr.tier : null, score: yr ? yr.score : null, luck: cy ? cy.ganZhi : null, sig: kept, dropped, young };
+  return { gz, shishen: [sg, sz], tier: yr ? yr.tier : null, score: yr ? yr.score : null, luck: cy ? cy.ganZhi : null, turn: yr && yr.turn ? yr.turn : null, sig: kept, dropped, young };
 }
 // v2 分组：同 v1 铁闸（十四岁以下感情降灰已由学龄规则取代，见 stageFilter）
 function groupV2(r, opt = {}) {
@@ -483,7 +481,8 @@ function timing(bz, N, sex, now = new Date(), opt = {}) {   // opt.lite：合盘
     const ctx = STAGE(age).context;
     // 学业年份的原因句按学业说（a2 10-06：学生盘上还写「月令：工作、家庭」「工作被动」）：只改句子，领域名「工作」不动（界面对照表认它）
     const asStudy = (lit) => (ctx === '学业' ? Object.fromEntries(Object.entries(lit).map(([k, v]) => [k, { ...v, why: v.why.map((x) => x.replace(/工作/g, '学业')) }])) : lit);
-    years.push({ year: y, age, context: ctx, gan_zhi: b.gz, luck: b.luck, tier: b.tier, score: b.score, bazi: asStudy(bd), west: asStudy(wd), mirror, gray, shift });
+    // turn：被点燃转紧的年份，按上桌那一派自己的话说为什么（schoolwords.js）；文字层不许裸翻
+    years.push({ year: y, age, context: ctx, gan_zhi: b.gz, luck: b.luck, tier: b.tier, score: b.score, ...(b.turn ? { turn: b.turn } : {}), bazi: asStudy(bd), west: asStudy(wd), mirror, gray, shift });
   }
   const round = (x) => Math.round(x * 10) / 10;
   const cand = [];

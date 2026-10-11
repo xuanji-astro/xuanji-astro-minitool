@@ -43,6 +43,14 @@ const plugin = {
     b.onResolve({ filter: /^node:(url|fs)$/ }, (a) => (a.importer.startsWith(SK) ? { path: path.join(B, `shim_skill_${a.path.slice(5)}.js`) } : undefined));
     b.onResolve({ filter: /^\.\/(private_files|client)\.mjs$/ }, (a) => (a.importer.startsWith(SK) ? { path: path.join(B, `shim_skill_${a.path.slice(2, -4)}.js`) } : undefined));
     b.onLoad({ filter: /.*/, namespace: 'xjwrap' }, (a) => ({ contents: wrap(a.path), loader: 'js', resolveDir: E }));
+    // 调候派（10-09 起）：服务端用顶层 await 按文件取 mingyu-core 没导出的调候表和匹配函数；浏览器包里换成静态引用同两份文件（引擎文件本身一字不改）
+    b.onLoad({ filter: /engine[\/\\]paipan[\/\\]schools[\/\\]tiaohou\.js$/ }, (a) => {
+      const MY = nm.map((p) => path.join(p, 'mingyu-core', 'dist', 'bazi')).find((p) => fs.existsSync(path.join(p, 'baziTherapeuticRules.js')));
+      const code = fs.readFileSync(a.path, 'utf8'), from = code.indexOf('let BAZI;'), to = code.indexOf('const { matchFirstRule } = await import(');
+      if (!MY || from < 0 || to < 0) throw new Error('tiaohou.js 的调候表加载方式变了，构建脚本这一段要跟着改');
+      const head = `import { CLIMATE_RULES } from ${JSON.stringify(path.join(MY, 'baziTherapeuticRules.js'))};\nimport { matchFirstRule } from ${JSON.stringify(path.join(MY, 'baziRuleMatcher', 'index.js'))};\n`;
+      return { contents: code.slice(0, from) + head + code.slice(code.indexOf('\n', to) + 1), loader: 'js', resolveDir: path.dirname(a.path) };
+    });
   },
 };
 

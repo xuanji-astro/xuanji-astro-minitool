@@ -1,19 +1,15 @@
 // 身强身弱多口径投票 v0（2026-10-02）
-// 主判＝几套八字算法多数决；西盘主体力量尺子只当佐证、不进票；问问题校正只在分歧时补充（规则待审定）。
+// 主判＝几套八字算法多数决；问问题校正只在分歧时补充。
 // 票：①排盘引擎 mingyu 七档 ②旺衰打分法（第三方 MIT 代码 vendor/yiqi_wangshuai 原样，交叉核对脚本的同一函数；对外只叫「旺衰打分法」，不写别家名字）③新派（月令 50%，10-01 规格 v1）。
 // 分歧规则（10-05 定）：方向一致才算多数——强、弱都有票就是硬分歧→待定，不管几比几；中对一边＝软分歧→偏那一边；
 // 有一票判到极档只触发引擎按从格／专旺复核，复核成立（pattern.isSpecial）才按特殊格局论；时辰不详→待定。
 // v1.2（10-06，用户反馈）：三票里只有一票有方向（另外的中和或弃权），不管哪边都降待定、用经历核；强弱向的说法只在实锤档放行（firm）。
 // v1.3（10-06 折数 v0）：旺衰打分法的「得令」按月令伤情打折，见 monthHurt；半合六合不折、负分照折（10-06 判）。
-// v1.3 补：三票都没方向、西盘尺子明确强或弱 → 待定出题（kind 尺子有方向）。
-const fs = require('fs'), vm = require('vm'), path = require('path');
+// v1.4（10-07 定）：身强身弱只用八字的判法加用户自己的经历判，西盘任何尺子都不进来（撤掉 v1.2「两票同向＋西盘同向」算实锤、
+// v1.3「三票没方向、西盘尺子偏一边」算待定）。实锤只认用户用经历核出来的（vote.decided）；几种判法的票只给起点：
+// 三票同向，或两票同向、第三票中和或没出方向＝起点有方向，没核过时只说偏强、偏弱；第三票明确反向＝硬分歧、只有一票有方向＝孤票，都待定、必问。
 const { judgeWangShuai } = require('../vendor/yiqi_wangshuai/wang-shuai.js');
 const { feelAsk } = require('./feel.js');
-const rctx = { module: { exports: {} }, Math, Object };
-vm.createContext(rctx);
-vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'vendor', 'ruler_v0.js'), 'utf8'), rctx, { filename: 'ruler_v0.js' });
-// 西盘尺子分位（thresholds_locked.json，两万合成盘，跑真人盘前锁定，规则 SHA a7cb360a）
-const WEST_TH = { full: [0.81, 1.07], half: [0.85, 1.0] };
 
 // ── 新派（月令 50%）v1：2026-10-01 规格，照写不改 ──
 const GAN = '甲乙丙丁戊己庚辛壬癸', ZHI = '子丑寅卯辰巳午未申酉戌亥';
@@ -148,7 +144,7 @@ function decide(sides, timeKnown) {
   return { side: count.强 ? '强' : '弱', agree: '分歧', kind: '软分歧' };
 }
 
-function strengthVote(bz, N, now = new Date()) {
+function strengthVote(bz, now = new Date()) {
   if (!bz || bz.status !== 'ok') return null;
   const b = bz.bazi, P = b.pillars, timeKnown = !!(P.hour && P.hour.gan);
   const votes = [];
@@ -157,28 +153,17 @@ function strengthVote(bz, N, now = new Date()) {
   const xp = xinpai(P);
   votes.push({ school: '新派', ...xp });
 
-  let west = { school: '西盘主体力量尺子 v0', role: '佐证，不进票', tier: '缺料不判' };
-  if (N) {
-    const S = Math.round(rctx.S(N, false) * 100) / 100, [lo, hi] = WEST_TH.full;
-    west = { ...west, S, tier: S > hi ? '强' : S < lo ? '弱' : '中', why: '太阳和命主星的庙旺、宫位、相位合算，和两万张合成盘比上下三成' };
-  }
-
   const cast = votes.filter((v) => v.side);
-  let { side, agree, kind } = decide(cast.map((v) => v.side), timeKnown);
-  // v1.3 补（10-06）：三票都没方向（中和或弃权）、西盘尺子却明确强或弱——按孤票同等待遇，待定、出题。
-  // 中和取泄耗克＝隐含偏强，尺子反向时喜忌就整套反了，不问不行
-  if (side === '中' && (west.tier === '强' || west.tier === '弱')) ({ side, agree, kind } = { side: '待定', agree: '中和·尺子有方向', kind: '尺子有方向' });
+  const { side, agree, kind } = decide(cast.map((v) => v.side), timeKnown);
   const extreme = cast.some((v) => v.extreme);
-  // v1.2 实锤档：三票同向，或两票同向＋西盘尺子同向。强弱向的说法（身旺身衰、花名、神煞话术）只在实锤档放行
-  const same = cast.filter((v) => v.side === side).length;
-  const firm = (side === '强' || side === '弱') && (same >= 3 || (same >= 2 && west.tier === side));
-  const needReview = kind === '硬分歧' || kind === '孤票' || kind === '尺子有方向';
+  // firm（可以直接说身强、身弱）在票这一层一律为假：实锤只来自用户核过的定案（vote.decided），下游先看 decided
+  const firm = false;
+  const needReview = kind === '硬分歧' || kind === '孤票';
   return {
-    schema: 'xuanji.strength_vote/0.2',
-    rule: 'v1.3：三票（排盘引擎／旺衰打分法／新派），方向一致才算多数；强、弱都有票＝硬分歧→待定，用经历核；只有一票有方向＝孤票→待定，用经历核；三票都没方向但西盘尺子明确强或弱→待定，用经历核；强弱向的说法只在实锤档（三票同向，或两票同向＋西盘同向）放行；旺衰打分法的得令按月令伤情打折；一票判到极档只触发从格复核，复核成立才按特殊格局论；时辰不详不判；西盘只佐证；外部排盘软件的结果只存档不计票。',
-    votes, west,
-    verdict: { side, agree, kind, extreme, firm, special: !!(b.pattern && b.pattern.isSpecial), need_review: needReview,
-               west_agrees: west.tier === '缺料不判' || side === '待定' ? null : west.tier === side },
+    schema: 'xuanji.strength_vote/0.3',
+    rule: 'v1.4：只用八字的判法加用户的经历判，西盘不进。三票（排盘引擎／旺衰打分法／新派），方向一致才算多数；强、弱都有票＝硬分歧→待定，用经历核；只有一票有方向＝孤票→待定，用经历核；票只给起点：三票同向或两票同向、第三票中和＝有方向，没核过只说偏强偏弱；实锤只认用户用经历核过的，强弱向的说法只在核过之后放行；旺衰打分法的得令按月令伤情打折；一票判到极档只触发从格复核，复核成立才按特殊格局论；时辰不详不判；外部排盘软件的结果只存档不计票。',
+    votes,
+    verdict: { side, agree, kind, extreme, firm, special: !!(b.pattern && b.pattern.isSpecial), need_review: needReview },
     favorable_if: favorableSets(P.day.gan),
     ask: needReview ? tiganAsk(P, now.getFullYear()) : null,
     // 用你的经历核一次（10-05）：硬分歧、孤票必问，其余可选；特殊格局（复核成立）、时辰不详不问；一票极档但复核没成立的照问

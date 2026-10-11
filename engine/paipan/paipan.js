@@ -8,10 +8,14 @@ import { chartFromMingyu, PILLAR_KEYS } from './chart.js';
 import { fixShenshaTables } from './shenshaFix.js';
 import { fixUsefulGod, isClimateUseful, weakClimate, presentWuxing } from './usefulGodFix.js';
 import { usefulGodForSide, SIDE_STATUS } from './strengthSide.js';
+import { fuyiSchool } from './schools/fuyi.js';
+import { tiaohouSchool } from './schools/tiaohou.js';
+import { gejuSchool, gejuL0 } from './schools/geju.js';
 import { wuxingRing, strengthBasis } from './components/wuxingRing.js';
 import { tenGodBar } from './components/tenGodBar.js';
 import { shenshaPanel } from './components/shensha.js';
 import { luckCycles } from './components/luck.js';
+import { liupan, birthTerm, qiyun, monthTable } from './liupan.js';
 
 export const ENGINE = 'mingyu-core@0.3.0';
 const COMMON_SHENSHA = new Set(COMMON_BAZI_SHENSHA_NAMES);
@@ -67,6 +71,48 @@ const MODE_CN = { true_solar: '真太阳时', clock: '北京时间' };
 // 钟表时间 → 引擎时辰编号（0 早子 00–01、1 丑 01–03 … 11 亥 21–23、12 晚子 23–24）
 const clockTimeIndex = (h) => (h === 23 ? 12 : Math.floor((h + 1) / 2));
 
+// 「北京时间」口径也要扣夏令时（10-10 定）：1986–1991 年夏天钟表拨快了 1 小时，按钟表排要先换回标准时。
+// 真太阳时那边引擎按时区自己扣；这里用系统时区库（Intl）查那一刻当地比当年 1 月快了多少分钟，快了就减回去。
+function offsetAt(tz, utcMs) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+    .formatToParts(new Date(utcMs)).map((x) => [x.type, x.value]));
+  return Math.round((Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute) - utcMs) / 60000);
+}
+export function standardClock(input) {
+  if (input.hour === null) return input;
+  const tz = input.place?.timeZoneId ?? 'Asia/Shanghai';
+  try {
+    const wall = Date.UTC(input.year, input.month - 1, input.day, input.hour, input.minute ?? 0);
+    const amb = dstAmbiguous(input);
+    const dst = (amb != null ? amb * 60 : offsetAt(tz, wall - offsetAt(tz, wall - 8 * 3600e3) * 60e3)) - offsetAt(tz, Date.UTC(input.year, 0, 15, 4));
+    if (dst <= 0) return input;
+    const t = new Date(wall - dst * 60e3);
+    return { ...input, year: t.getUTCFullYear(), month: t.getUTCMonth() + 1, day: t.getUTCDate(), hour: t.getUTCHours(), minute: t.getUTCMinutes() };
+  } catch (_) { return input; }   // 时区库查不到就照原样
+}
+// 夏令时结束那天 1 点到 2 点走了两遍（引擎要求给固定偏移才肯排）：按夏令时那一遍（第一遍，钟表还拨快着）排，回 UTC+9
+export function dstAmbiguous(input) {
+  if (input.hour === null) return null;
+  const tz = input.place?.timeZoneId ?? 'Asia/Shanghai';
+  try {
+    const wall = Date.UTC(input.year, input.month - 1, input.day, input.hour, input.minute ?? 0);
+    const hits = [-12, -11, -10, -9, -8, -7, -6, -5].map((h) => wall + h * 3600e3).filter((u) => u + offsetAt(tz, u) * 60e3 === wall).map((u) => offsetAt(tz, u));
+    return hits.length > 1 ? Math.max(...hits) / 60 : null;
+  } catch (_) { return null; }
+}
+// 夏令时开始那天钟表从 2 点直接拨到 3 点，这一小时里的钟点不存在（引擎会直接报错）：按没拨快的标准时理解，换成同一时刻的夏令钟点
+export function dstGap(input) {
+  if (input.hour === null) return null;
+  const tz = input.place?.timeZoneId ?? 'Asia/Shanghai';
+  try {
+    const wall = Date.UTC(input.year, input.month - 1, input.day, input.hour, input.minute ?? 0);
+    const utc = wall - offsetAt(tz, wall - 8 * 3600e3) * 60e3;
+    if (utc + offsetAt(tz, utc) * 60e3 === wall) return null;
+    const t = new Date(wall - offsetAt(tz, Date.UTC(input.year, 0, 15, 4)) * 60e3 + offsetAt(tz, wall - offsetAt(tz, Date.UTC(input.year, 0, 15, 4)) * 60e3) * 60e3);
+    return { ...input, year: t.getUTCFullYear(), month: t.getUTCMonth() + 1, day: t.getUTCDate(), hour: t.getUTCHours(), minute: t.getUTCMinutes() };
+  } catch (_) { return null; }
+}
+
 function runEngine(input, shenShaScope, mode = input.timeMode, profile = null) {
   const base = {
     year: input.year,
@@ -82,7 +128,8 @@ function runEngine(input, shenShaScope, mode = input.timeMode, profile = null) {
     return baziCalculator.calculateBazi({ ...base, isThreePillars: true, useTrueSolarTime: false });
   }
   if (mode === 'clock') {
-    return baziCalculator.calculateBazi({ ...base, timeIndex: clockTimeIndex(input.hour), useTrueSolarTime: false });
+    const s = standardClock(input);
+    return baziCalculator.calculateBazi({ ...base, year: s.year, month: s.month, day: s.day, timeIndex: clockTimeIndex(s.hour), useTrueSolarTime: false });
   }
   return baziCalculator.calculateBazi({
     ...base,
@@ -92,8 +139,9 @@ function runEngine(input, shenShaScope, mode = input.timeMode, profile = null) {
     birthMinute: input.minute,
     birthPlace: input.place.displayName,
     birthLongitude: input.place.longitude,
-    // 按出生日期查当时的法定时区，1986–1991 夏令时由引擎处理
+    // 按出生日期查当时的法定时区，1986–1991 夏令时由引擎处理；结束那天重复的一小时按夏令时那一遍
     timeZoneId: input.place.timeZoneId ?? 'Asia/Shanghai',
+    ...(dstAmbiguous(input) != null ? { timezone: dstAmbiguous(input) } : {}),
   });
 }
 
@@ -145,7 +193,7 @@ const usefulGodsOf = (useful, dm) => ({
 });
 
 export function paipan(body) {
-  const input = parseInput(body);
+  const entered = parseInput(body), gapped = dstGap(entered), input = gapped ?? entered;
   const raw = runEngine(input, 'common');
   const chart = fixShenshaTables(chartFromMingyu(raw, extraScoredShensha(runEngine(input, 'all'))), runEngine(input, 'common', input.timeMode, 'classical'));
   const analysis = raw.analysis ?? {};
@@ -161,6 +209,8 @@ export function paipan(body) {
   // 两种口径的日柱＋时柱对一下：不一样就提示（出生时间离时辰交界近的人，我们跟只用钟表时间的软件会排出不同的时柱）
   let timeCheck = null;
   const warnings = [...(raw.warnings ?? [])];
+  if (dstAmbiguous(input) != null) warnings.push('出生时间落在 1986–1991 年夏令时结束那天走了两遍的一小时里（钟表从 2 点拨回 1 点），按夏令时那一遍排。');
+  if (gapped) warnings.push('出生时间落在 1986–1991 年夏令时开始那天被跳过的一小时里（钟表从 2 点直接拨到 3 点），按没拨快的标准时排。');
   if (timeKnown) {
     const otherMode = input.timeMode === 'clock' ? 'true_solar' : 'clock';
     const other = runEngine(input, 'common', otherMode);
@@ -172,17 +222,24 @@ export function paipan(body) {
     }
   }
 
+  // 出生时刻：真太阳时口径用校正后的时刻，钟表口径用原时刻；时辰不详只到日
+  const birthAt = t && input.timeMode !== 'clock'
+    ? { year: t.year, month: t.month, day: t.day, hour: t.hour, minute: t.minute }
+    : { year: input.year, month: input.month, day: input.day, hour: input.hour, minute: input.minute };
+  const natalGZ = Object.fromEntries(PILLAR_KEYS.map((k) => [k, chart.pillars[k]?.ganZhi ?? null]));
+
   return {
     version: { api: 'v1', engine: ENGINE, config: CONFIG_VERSION },
     input: {
-      date: `${input.year}-${pad(input.month)}-${pad(input.day)}`,
-      time: timeKnown ? `${pad(input.hour)}:${pad(input.minute)}` : null,
+      date: `${entered.year}-${pad(entered.month)}-${pad(entered.day)}`,   // 回显用户填的（夏令时跳过的那一小时也照填的回显）
+      time: timeKnown ? `${pad(entered.hour)}:${pad(entered.minute)}` : null,
       city: input.place.displayName,
       longitude: input.place.longitude,
       gender: input.gender,
       timeKnown,
       timeMode: input.timeMode,
       trueSolarTime: t ? `${t.year}-${pad(t.month)}-${pad(t.day)} ${pad(t.hour)}:${pad(t.minute)}` : null,
+      birthTerm: birthTerm(birthAt),
     },
     warnings,
     timeCheck,
@@ -200,8 +257,24 @@ export function paipan(body) {
       },
       usefulGods: usefulGodsOf(useful, chart.dayMaster.element),
       luck: luckCycles(raw, chart.dayMaster.gan, useful, input.year),
-      // 五行旺相休囚死（按月令）：生辰盘最底下一行「土旺 金相 火休 木囚 水死」；强弱投票 v1.3 认成局要用
+      // 多派交叉论证（10-07 起）：各派按自己整套方法各算各的，并排出；usefulGods／luck 是现在页面用的引擎混合版，多派一起切换前照旧
+      schools: (() => { const l0 = gejuL0(raw); return { fuyi: fuyiSchool(raw, l0), tiaohou: tiaohouSchool(raw, l0), geju: gejuSchool(raw) }; })(),
+      // 五行旺相休囚死（按月令）：生辰盘最底下一行「土旺 金相 火休 木囚 水死」
       wuxingSeason: raw.wuxingSeasonStatus ?? null,
+      // 参数页：胎元（月柱推）、胎息（日柱推）、命宫／身宫（要时辰，时辰不详不给）、命卦（出生年＋性别）
+      params: {
+        taiYuan: raw.taiYuan ?? null,
+        taiXi: raw.taiXi ?? null,
+        mingGong: timeKnown ? raw.mingGong ?? null : null,
+        shenGong: timeKnown ? raw.shenGong ?? null : null,
+        mingGua: raw.mingGua ? { gua: raw.mingGua.gua, eastWest: raw.mingGua.eastWest } : null,
+      },
+      // 流盘（生辰历页「流盘」页签）：cols＝六十甲子各自对本命的整列（大运／流年／小运／流月都查它）；years＝出生起一百年的流年＋小运；months＝每年十二个节的月.日＋月干支
+      liupan: {
+        qiyun: qiyun(raw, birthAt),
+        ...liupan({ natal: natalGZ, birthYear: input.year, gender: input.gender }),
+        months: monthTable(input.year - 1, 101),
+      },
     },
     components: {
       dayMasterCard: {

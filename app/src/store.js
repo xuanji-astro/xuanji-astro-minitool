@@ -39,6 +39,20 @@ export function setRect(id, rect) {
   r.rect = rect;
   write(xs);
 }
+// 身强身弱校正（10-10 起，跟网站、Skill、Kimi 同一套）：只记 8 道题选了哪项＋你说的大事（哪年、哪类事、好坏），定下来的才存
+export function setCalib(id, calib) {
+  const xs = list(), r = xs.find((x) => x.id === id);
+  if (!r) return;
+  r.calib = calib;
+  write(xs);
+}
+// 你说的大事（身强身弱校正和定时辰共用一份，说一次两处用）：只记哪年、哪个方面、哪类事、好事坏事，不记细节
+export function setEvents(id, events) {
+  const xs = list(), r = xs.find((x) => x.id === id);
+  if (!r) return;
+  r.events = events;
+  write(xs);
+}
 // 同一天出生、换了时辰的另一张盘：回答照样拿来对照（日主变了的计分时自己会扔掉）
 export function feelOfDate(date, except) {
   const r = list().find((x) => x.id !== except && x.input && x.input.date === date && Array.isArray(x.feel) && x.feel.length);

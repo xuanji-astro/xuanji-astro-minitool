@@ -220,4 +220,4 @@ function feelScore(dm, answers, ask) {
   return { status: '挂起', decided: null, counts: n, asked, why: sides.弱 || sides.强 ? '两种读法都有对上的年份，拉不开' : '都没选出哪一种，体感不可判' };
 }
 
-module.exports = { feelAsk, feelScore, yearItem, tenGod, RULES, TEMPLATE };
+module.exports = { feelAsk, feelScore, yearItem, tenGod, hash, RULES, TEMPLATE };

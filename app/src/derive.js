@@ -51,17 +51,15 @@ export function reliability(out, rectified = false) {
 const SIDE_WORD = { 强: '身强', 弱: '身弱', 中: '中和', 待定: '暂不硬判' };
 // fs＝「用你的经历核一次」的计分结果（引擎 feelScore 算好的）；定下来的高于三种判法
 // held＝上一次的定案（改判记录最后一条）：这次在加问或挂起，证据还不够改判，结论先按它
-export function strength(out, fs, held, base = null) {
+export function strength(out, fs, held, base = null, cal = null) {
   const s = out.method.bazi && out.method.bazi.strength, v = s && s.vote;
   if (!v) return null;
   const vd = v.verdict;
   // v1.2／v1.3（10-06）：只有一路有方向＝孤票、三路都中和但星盘偏一边＝尺子有方向，都降待定、必问
   const agree = vd.agree === '一致' ? '三路判法方向一致' : vd.agree === '多数' ? '三路里两路一致' : vd.kind === '硬分歧' ? '存在硬分歧' : vd.kind === '孤票' ? '只有一路说出强弱' : vd.kind === '尺子有方向' ? '星盘另有倾向' : vd.kind === '软分歧' ? '存在软分歧' : vd.agree === '时辰不详' ? '时辰不详，只排三柱' : '票数不够';
-  const westWord = { 强: '偏强', 中: '中等', 弱: '偏弱' }[v.west.tier] || null;
   return {
     verdict: SIDE_WORD[vd.side] || vd.side, side: vd.side, agree, kind: vd.kind,
     votes: v.votes.map((x) => ({ school: x.school, level: x.level || (x.status === '区间' ? '只出区间' : '—'), why: x.why || '' })),
-    west: westWord, westAgrees: vd.west_agrees,
     // 特殊格局只认复核结果（pattern.isSpecial）；一票判到极档只触发复核，没成立就照常三票（10-05 定）
     special: !!vd.special,
     review: vd.special ? '这张盘按特殊格局论，喜忌按格局取，不按身强身弱这套' : vd.kind === '硬分歧' ? '几路判法说法相反，要结合可验证的年份继续确认'
@@ -72,8 +70,15 @@ export function strength(out, fs, held, base = null) {
     unfavorable: out.method.bazi.useful ? out.method.bazi.useful.unfavorable : [],
     favorableIf: v.favorable_if,
     feel: v.feel && v.feel.enough ? v.feel : null, need: !!(v.feel && v.feel.need), feelWhy: v.feel && !v.feel.enough ? v.feel.why : null, young: !!(v.feel && !v.feel.enough && v.feel.young),
-    ...mine(out, v, fs, held, base),
+    ...(cal && cal.status === '定案' ? calibMine(out, cal, base) : mine(out, v, fs, held, base)),
   };
+}
+// 身强身弱校正定下来的（10-10 起）：结论换成你的，整盘已按它重排；跟你先看到的喜用不一样，就摆出来作对照
+function calibMine(out, cal, base) {
+  const u = (o) => (o && o.method.bazi && o.method.bazi.useful ? o.method.bazi.useful : null), was = base && base !== out ? u(base) : null, now = u(out);
+  const old = was && now && (was.favorable.join('') !== now.favorable.join('') || was.unfavorable.join('') !== now.unfavorable.join('')) ? was : null;
+  return { calib: cal, mine: true, verdict: SIDE_WORD[cal.side], side: cal.side, kind: null, review: null, agree: '你亲手定的', hold: null, turned: false,
+    ...(old ? { flip: { favorable: old.favorable, unfavorable: old.unfavorable } } : {}) };
 }
 // 你亲手定的：结论换成你的。定案跟你先看到的结论方向相反时，整盘已按定案重算（喜用、大运、时间线），这里摆出你先看到的喜用作对照
 // base＝没核过时那一版（没核过、结论跟引擎档位不同的盘，那一版已经按结论排过，10-06 定）
@@ -204,40 +209,48 @@ const EL5 = { 甲: '木', 乙: '木', 丙: '火', 丁: '火', 戊: '土', 己: '
 const CN_N = ['零', '一', '两', '三', '四', '五', '六', '七', '八', '九', '十'];
 export const cnNum = (n) => CN_N[n] || String(n);
 // 每一件站在哪边（只为展示，票数以 rectify.mjs 为准）：大事看两张盘那年那块谁更亮；专门问的看哪张盘亮、你答有没有；体感看哪张盘的喜忌对得上
-export function rectItems(A, B, rt, weight) {
+export function rectItems(A, B, rt, weight, dOf = (e) => e.domain) {
   const ch = (o) => ({ Y: new Map(o.method.timing.years.map((r) => [r.year, r])) }), ca = ch(A), cb = ch(B);
   const uf = (o) => { const u = o.method.bazi && o.method.bazi.useful; return { fav: (u && u.favorable) || [], unfav: (u && u.unfavorable) || [] }; };
   const predict = (u, gz) => { const e = [EL5[gz[0]], EL5[gz[1]]]; return e.every((x) => u.fav.includes(x)) ? '顺' : e.every((x) => u.unfav.includes(x)) ? '闷' : null; };
   const out = [];
+  // 你说的大事：具体的事归到六个方面再比两张盘（健康不进这一票，命理组 10-10）
   for (const e of rt.events) {
-    const a = weight(ca, e.year, e.domain), b = weight(cb, e.year, e.domain);
-    out.push({ kind: 'told', year: e.year, domain: e.domain, side: a > b ? 'a' : b > a ? 'b' : null, only: a === 0 || b === 0, none: a === 0 && b === 0 });
+    const d = dOf(e); if (!d) continue;
+    const a = weight(ca, e.year, d), b = weight(cb, e.year, d);
+    out.push({ kind: 'told', year: e.year, domain: d, event: e.event || null, side: a > b ? 'a' : b > a ? 'b' : null, only: a === 0 || b === 0, none: a === 0 && b === 0 });
   }
   for (const k of rt.ask.targeted) {
     const v = rt.answers.targeted && rt.answers.targeted[k.id]; if (v !== '有' && v !== '没有') continue;
     const lit = weight(ca, k.year, k.domain) > 0 ? 'a' : 'b';
     out.push({ kind: 'asked', year: k.year, domain: k.domain, ans: v, lit, side: v === '有' ? lit : lit === 'a' ? 'b' : 'a' });
   }
-  const ua = uf(A);
-  for (const k of [...rt.ask.feel, rt.ask.feel_extra].filter(Boolean)) {
-    const v = rt.answers.feel && rt.answers.feel[k.id]; if (v !== '顺' && v !== '闷') continue;
-    out.push({ kind: 'feel', year: k.year, ans: v, side: v === predict(ua, k.gan_zhi) ? 'a' : 'b' });
+  // 体感（10-10 起不单独问）：大事和追问里的好事坏事，只看两张盘说法相反的年份；同一年好坏都有的不记（同 rectify.mjs）
+  const goods = [...rt.events.filter((e) => typeof e.good === 'boolean').map((e) => ({ year: e.year, good: e.good, what: e.event || RD_SHORT[dOf(e)] || e.domain })),
+    ...rt.ask.targeted.filter((k) => rt.answers.targeted && rt.answers.targeted[k.id] === '有' && rt.answers.good && rt.answers.good[k.id]).map((k) => ({ year: k.year, good: rt.answers.good[k.id] === '好事', what: RD_SHORT[k.domain] + '的事' }))];
+  const mixed = new Set(goods.filter((x) => goods.some((y) => y.year === x.year && y.good !== x.good)).map((x) => x.year));
+  const ua = uf(A), ub = uf(B);
+  for (const g of goods) {
+    if (mixed.has(g.year)) continue;
+    const gz = GZ(g.year), pa = predict(ua, gz), pb = predict(ub, gz); if (!pa || !pb || pa === pb) continue;
+    out.push({ kind: 'feel', year: g.year, ans: `${g.what}是${g.good ? '好事' : '坏事'}`, side: g.good === (pa === '顺') ? 'a' : 'b' });
   }
   return out.sort((x, y) => x.year - y.year);
 }
+const GZ = (y) => '甲乙丙丁戊己庚辛壬癸'[((y - 4) % 10 + 10) % 10] + '子丑寅卯辰巳午未申酉戌亥'[((y - 4) % 12 + 12) % 12];
 // 揭晓卡的几行理由（照 10-04 确认图的说法）
 export function rectWhy(items, hours, win) {
-  const W = hours[win], L = hours[win === 'a' ? 'b' : 'a'], lose = win === 'a' ? 'b' : 'a', D = (k) => RD_SHORT[k.domain];
+  const W = hours[win], L = hours[win === 'a' ? 'b' : 'a'], lose = win === 'a' ? 'b' : 'a', D = (k) => k.event || RD_SHORT[k.domain];
   const yrs = (xs) => xs.map((x) => `${x.year} 年${D(x)}`).join('、');
   const lines = [];
   const toldW = items.filter((x) => x.kind === 'told' && x.side === win);
   const more = toldW.filter((x) => !x.only), only = toldW.filter((x) => x.only);
   if (more.length) lines.push(['y', `${yrs(more)}：${W}那张盘这${cnNum(more.length)}年亮得更多`]);
   if (only.length) lines.push(['y', `${yrs(only)}：只有${W}那张盘这${cnNum(only.length)}年是亮的`]);
-  for (const x of items.filter((i) => i.kind === 'asked' && i.side === win)) lines.push(['y', x.ans === '有' ? `${x.year} 年${D(x)}有变动：只有${W}那张盘这一年是亮的` : `${x.year} 年${D(x)}没什么变化：那年只有${L}那张盘亮`]);
+  for (const x of items.filter((i) => i.kind === 'asked' && i.side === win)) lines.push(['y', x.ans === '有' ? `${x.year} 年${D(x)}有事：只有${W}那张盘这一年是亮的` : `${x.year} 年${D(x)}没什么事：那年只有${L}那张盘亮`]);
   const fw = items.filter((x) => x.kind === 'feel' && x.side === win);
   if (fw.length) lines.push(['y', `${[...fw].reverse().map((x) => `${x.year} 年${x.ans}`).join('、')}：正好对上${W}那张盘的喜忌`]);
-  for (const x of items.filter((i) => i.side === lose)) lines.push(['o', x.kind === 'told' ? `${x.year} 年${D(x)}的事：${L}这边更亮一点` : x.kind === 'asked' ? (x.ans === '有' ? `${x.year} 年${D(x)}有变动：只有${L}那张盘这一年是亮的` : `${x.year} 年${D(x)}没什么变化：那年只有${W}那张盘亮`) : `${x.year} 年${x.ans}：对上的是${L}那张盘的喜忌`]);
+  for (const x of items.filter((i) => i.side === lose)) lines.push(['o', x.kind === 'told' ? `${x.year} 年${D(x)}的事：${L}这边更亮一点` : x.kind === 'asked' ? (x.ans === '有' ? `${x.year} 年${D(x)}有事：只有${L}那张盘这一年是亮的` : `${x.year} 年${D(x)}没什么事：那年只有${W}那张盘亮`) : `${x.year} 年${x.ans}：对上的是${L}那张盘的喜忌`]);
   for (const x of items.filter((i) => i.kind === 'told' && !i.side)) lines.push(['n', `${x.year} 年${D(x)}：${x.none ? '两张盘那一年这一块都没亮' : '两边一样亮'}，不算`]);
   return lines;
 }

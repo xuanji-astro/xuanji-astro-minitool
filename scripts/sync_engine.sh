@@ -6,7 +6,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 API="${1:-$HERE/../xuanji-profile-api}"; PP="${2:-$HERE/../xuanji-paipan}"; SK="${3:-$HERE/../_wt/skill_rc5/xuanji}"
 E="$HERE/engine"; rm -rf "$E/src" "$E/vendor" "$E/paipan" "$E/skill"; mkdir -p "$E/src" "$E/vendor/site_words" "$E/vendor/yiqi_wangshuai" "$E/paipan" "$E/skill"
-for f in core method words strength feel quotes boundary timing transits geo; do cp "$API/src/$f.js" "$E/src/"; done
+for f in core method words strength feel quotes boundary timing transits geo schoolvote schoolwords calib; do cp "$API/src/$f.js" "$E/src/"; done   # schoolvote／schoolwords：三派投票和各派说法（10-09 起）；calib：身强身弱校正（10-10 起）
 for f in astronomy.js asteroid-ephem.js computeNatal_受控版.js engine_mbti_core.js cities.js tianji_personal.js ruler_v0.js; do cp "$API/vendor/$f" "$E/vendor/"; done
 cp "$API"/vendor/site_words/*.js "$E/vendor/site_words/"
 cp "$API"/vendor/yiqi_wangshuai/* "$E/vendor/yiqi_wangshuai/"

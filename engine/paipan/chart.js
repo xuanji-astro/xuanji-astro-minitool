@@ -59,7 +59,7 @@ export function chartFromMingyu(raw, extraShensha = {}) {
     if (!pillar) continue;
     pillar.nayin = raw.nayin?.[key] ?? '';
     pillar.kongWang = raw.kongWang?.[key] ?? [];
-    pillar.lifeStage = raw.pillarLifeStages?.[key] ?? '';
+    pillar.lifeStage = raw.lifeStages?.[key] ?? '';   // 地势＝日主在本柱地支的十二长生（引擎 lifeStages）；pillarLifeStages 是本柱天干自坐，跟 ziZuo 同值，之前误用
     pillar.ziZuo = raw.ziZuo?.[key] ?? '';
     const base = raw.shensha?.[key] ?? [];
     pillar.shensha = [...base, ...(extraShensha[key] ?? []).filter((name) => !base.includes(name))];

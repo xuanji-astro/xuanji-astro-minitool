@@ -4,9 +4,9 @@ import core from '../engine/src/core.js';
 import transits from '../engine/src/transits.js';
 import feel from '../engine/src/feel.js';   // 用你的经历核一次：计分在本机（回答不出这台手机）
 import { paipan, InputError as PaipanInputError } from '../engine/paipan/paipan.js';
-import { candidate as rectCandidate, plan as rectPlan, score as rectScore, weight as rectWeight } from '../engine/skill/rectify.mjs';   // 定时辰：Skill 同一份打分脚本
+import { candidate as rectCandidate, plan as rectPlan, score as rectScore, weight as rectWeight, AREAS as rectAreas, domainOf as rectDomainOf } from '../engine/skill/rectify.mjs';   // 定时辰：Skill 同一份打分脚本
 
-const { parseInput, natalOf, autoSideOf, assemble, InputError } = core;
+const { parseInput, natalOf, autoSideOf, strengthOfAnswers, calibInput, assemble, InputError } = core;
 const hhmm = (inp) => (inp.h == null ? null : `${String(inp.h).padStart(2, '0')}:${String(inp.mi).padStart(2, '0')}`);
 
 // 同 profile.js bazi()：先用用户写的城市；排盘认不出时用我们解析出的全称再试一次。走一遍 JSON 往返，和服务端收到的回包一模一样。
@@ -22,9 +22,18 @@ function baziLocal(inp) {
 
 /* global XJ_VERSION */
 function compute(body, { now = new Date(), lite = false } = {}) {
-  const inp = parseInput(body);
+  let inp = parseInput(body);
   const N = natalOf(inp);
   let bz = baziLocal(inp);
+  // 同 profile.js withCalib（10-10）：身强身弱校正（8 道题＋大事）——先照没答题的样子排一遍算分，定了就把出过题的纯年按那一边当回答，后面照原来那条路
+  if (inp.calib) {
+    const inp1 = { ...inp, answers: null, calib: null }, a1 = autoSideOf(inp1, bz, null);
+    let b1 = bz; if (a1) { const r = baziLocal({ ...inp1, strength: a1 }); if (r.status === 'ok') b1 = r; }
+    inp = calibInput(inp, assemble(inp1, null, b1, { version: XJ_VERSION, lite: true, now, auto: a1 }));
+  }
+  // 同 profile.js：「核一核」的回答里身强身弱定了，当作核过的定案带着再排一次；派别由 assemble 按回答挑（10-08 起，跟 Skill、Kimi 同一套）
+  const fromAns = strengthOfAnswers(inp, bz);
+  if (fromAns) { inp = { ...inp, strength: fromAns, strength_by: '核核你' }; const b2 = baziLocal(inp); if (b2.status === 'ok') bz = b2; }
   // 同 profile.js：没核过、几种判法的结论跟引擎档位不同，带结论再排一次（10-06 定）
   const auto = autoSideOf(inp, bz, N);
   if (auto) { const b2 = baziLocal({ ...inp, strength: auto }); if (b2.status === 'ok') bz = b2; }
@@ -46,4 +55,4 @@ function loadEphem(tab) {
   return n;
 }
 
-window.XJ = { compute, loadEphem, feelScore: feel.feelScore, feelItem: feel.yearItem, rect: { candidate: rectCandidate, plan: rectPlan, score: rectScore, weight: rectWeight }, InputError, version: XJ_VERSION };
+window.XJ = { compute, loadEphem, feelScore: feel.feelScore, feelItem: feel.yearItem, rect: { candidate: rectCandidate, plan: rectPlan, score: rectScore, weight: rectWeight, AREAS: rectAreas, domainOf: rectDomainOf }, InputError, version: XJ_VERSION };

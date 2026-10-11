@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const API = process.argv[2] || path.join(ROOT, '..', 'xuanji-profile-api');
 const require = createRequire(import.meta.url);
-const { parseInput, natalOf, autoSideOf, assemble } = require(path.join(API, 'src', 'core.js'));
+const { parseInput, natalOf, autoSideOf, strengthOfAnswers, assemble } = require(path.join(API, 'src', 'core.js'));
 const { paipan, InputError } = await import(path.join(API, '..', 'xuanji-paipan', 'src', 'paipan.js'))   // engine/paipan 是它的原样拷贝（SOURCES.txt 核 sha）;
 const { VERSION } = require(path.join(API, 'src', 'profile.js'));
 
@@ -25,11 +25,13 @@ for (let i = 0; i < 24; i++) {
 }
 const NOW = '2026-10-02T04:00:00.000Z';
 const build = (body) => {
-  const inp = parseInput(body), N = natalOf(inp);
+  let inp = parseInput(body); const N = natalOf(inp);
   const hh = inp.h == null ? null : `${pad(inp.h)}:${pad(inp.mi)}`;
   const call = (city, strength) => { try { return { ok: true, body: JSON.parse(JSON.stringify(paipan({ date: inp.date, time: hh, city, gender: inp.gender, ...(strength ? { strength } : {}) }))) }; } catch (e) { if (e instanceof InputError) return { ok: false, body: { error: { code: e.code, message: e.message } } }; throw e; } };
   const one = (x) => { let r = call(inp.city, x); if (r.body?.error?.code === 'LOCATION_NOT_FOUND' && inp.place?.name && inp.place.name !== inp.city) r = call(inp.place.name, x); return r.ok ? { status: 'ok', ...r.body } : { status: 'error', http: 400, error: r.body.error }; };
   let bz = one(inp.strength);
+  const fromAns = strengthOfAnswers(inp, bz);   // 同 browser/entry.js：核一核的回答里身强身弱定了，带着定案再排一次
+  if (fromAns) { inp = { ...inp, strength: fromAns, strength_by: '核核你' }; const b2 = one(fromAns); if (b2.status === 'ok') bz = b2; }
   const auto = autoSideOf(inp, bz, N);   // 同 browser/entry.js：没核过、结论跟引擎档位不同，带结论再排一次
   if (auto) { const b2 = one(auto); if (b2.status === 'ok') bz = b2; }
   const o = assemble(inp, N, bz, { version: VERSION, now: new Date(NOW), auto });
@@ -41,6 +43,10 @@ const out = cases.map(build);
 for (const c of out.filter((c) => c.out.method.bazi?.strength?.vote?.feel && !c.out.bazi.bazi.pattern.isSpecial).slice(0, 2)) {
   const eng = /强|旺/.test(c.out.bazi.bazi.strength) ? '强' : /弱|衰/.test(c.out.bazi.bazi.strength) ? '弱' : '强';
   out.push(build({ ...c.input, strength: eng === '强' ? '弱' : '强' }));
+}
+// 核一核（10-09 起）：取前两张有题的盘，首轮每年选第一条读法，回答带着重算——身强身弱和上桌的派别都由引擎按回答定
+for (const c of out.filter((c) => c.out.method.bazi?.check?.enough && !c.input.strength).slice(0, 2)) {
+  out.push(build({ ...c.input, answers: c.out.method.bazi.check.first_ask.map((x) => ({ year: x.year, pick: x.order[0] })) }));
 }
 fs.writeFileSync(path.join(ROOT, 'test', 'fixtures', 'expected.json'), JSON.stringify({ now: NOW, version: VERSION, cases: out }));
 console.log('fixtures', out.length, 'bazi ok', out.filter((c) => c.out.bazi.status === 'ok').length, 'past_candidates', out.map((c) => (c.out.method.timing?.past_candidates || []).length).join(','));

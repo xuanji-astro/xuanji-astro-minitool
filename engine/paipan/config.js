@@ -2,7 +2,7 @@
 // 玄玑 xuanji-paipan · 算法配置表
 // 口径只改这里，计算函数只读不写死数字。改了任何一项都要升 CONFIG_VERSION。
 
-export const CONFIG_VERSION = '2026-10-06.v1.8';
+export const CONFIG_VERSION = '2026-10-10.v1.9.2';
 
 export const ELEMENTS = ['木', '火', '土', '金', '水'];
 
