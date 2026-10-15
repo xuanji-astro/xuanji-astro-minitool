@@ -20,7 +20,7 @@ cp "$SK/scripts/rectify.mjs" "$E/skill/rectify.mjs"; cp "$SK/LICENSE" "$E/skill/
   echo "xuanji-profile-api $(git -C "$API" rev-parse --short HEAD)$(git -C "$API" diff --quiet || echo ' (有未提交改动)')"
   echo "xuanji-paipan      $(git -C "$PP" rev-parse --short HEAD)$(git -C "$PP" diff --quiet || echo ' (有未提交改动)')"
   echo "mingyu-core        $(node -p "require('$PP/node_modules/mingyu-core/package.json').version")"
-  echo "xuanji-skill        $(node -p "require('$SK/package.json').version")（scripts/rectify.mjs）"
+  echo "xuanji-skill        $(node -p "require('$SK/package.json').version")（scripts/rectify.mjs$(git -C "$SK" rev-parse --short HEAD 2>/dev/null | sed 's/^/，提交 /')）"
   echo
   echo "扩展星历 ext/asteroid-ephem-ext.js：JPL Horizons 日心黄道 J2000 位置（scripts/fetch_jpl_ext.py 取，scripts/ephem_ext.py 生成）"
   echo

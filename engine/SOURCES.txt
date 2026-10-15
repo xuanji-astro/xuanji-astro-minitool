@@ -1,8 +1,8 @@
 # 引擎来源（scripts/sync_engine.sh 生成，别手改）
-xuanji-profile-api 29227fe
+xuanji-profile-api e61f44d
 xuanji-paipan      b8b1928
 mingyu-core        0.3.0
-xuanji-skill        0.1.0-rc.8（scripts/rectify.mjs）
+xuanji-skill        0.1.0-rc.10（scripts/rectify.mjs，提交 12abdad）
 
 扩展星历 ext/asteroid-ephem-ext.js：JPL Horizons 日心黄道 J2000 位置（scripts/fetch_jpl_ext.py 取，scripts/ephem_ext.py 生成）
 
@@ -28,13 +28,13 @@ c9190c1859acfec1928e3ace2ddcffa8d622924c7541cdac9c65501ab46c173f  paipan/schools
 4df81b9464b17d123bb1df3b2a5515a9d7df443f549dba0f382d96eec244aebe  paipan/usefulGodFix.js
 c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4  skill/LICENSE
 b9d0c70d1f0e7530e393738365e7a1d80137a8338499e9498068e6eb176b4e52  skill/NOTICE
-4681812ce8e3d2f2537ad0e817ac445f49a3aa7ea73d23117b2cc244a3208023  skill/rectify.mjs
+22f222f5667b706101672c86ab53a6717322623a371b56476f406ecf6f99d49b  skill/rectify.mjs
 6fc5a2eae5ceeeb7eb55deaca14c47272b85b97a026cd8b081b2478aec437da4  src/boundary.js
-866e63ed40694ccf1be8167cd71336698cbf63d33dd1d76e46c472d55fe3bcf1  src/calib.js
-a24102ebcfe4198d37f6dadeea589c1ab04e5bb0bb0152bc67406b0d703b5f7d  src/core.js
+ecf57bd24d526029366439025333ea3a21fcac1552efd1891c60f632aef73958  src/calib.js
+ba0861df9e40e6525c5bf5abc10fcfd8c833b0d08f1bd20aa876201cc524b3e0  src/core.js
 ae69d07efe9466932ed6f1491f24b0103dd74d77658f809774183c9616d9dc0a  src/feel.js
 84c3ede8918bb1e52b0e6d37f81fb0f2b12ee0c878652c22e8bf5bc14243995f  src/geo.js
-65fbfe5c50dbf31c8674f43051bbfe051716afa6f6371a470393bc6b1845df79  src/method.js
+27ce8cbae8df0fbd48c16684d7bf4bfef71ed241249cafecf9b2d077c7aeb247  src/method.js
 072858903fbe15b9707abb9767f9b7e5026f029a15ac04b86e13f7acd9d79ead  src/quotes.js
 414bb94980ddfbb313df66f080552605e0942f7f994febe8f1c23ac5a7f23a0c  src/schoolvote.js
 d74b9e56c926f619d6f9b92d3a6dc54e06fb38d49c5d8829e4caa7509bfc08f9  src/schoolwords.js

@@ -137,6 +137,8 @@ function personaMethod(ch, bc, tk, seed) {
   return {
     base: {
       type: t, name: pick(MBTI.SOUL_NAMES[t], 'name'), line: pick(MBTI.SOUL_LINES[t], 'line'),
+      // 每型解说两句（前一句戳痛、后一句封神），line 按生辰二选一；报告封面第三句要正向，固定给封神那句（10-11）
+      cover_line: (MBTI.SOUL_LINES[t] || [])[1] || null,
       stack: { dom: fw(st[0]), aux: fw(st[1]), tert: fw(st[2]), inf: fw(st[3]) },
       neighbor: nb ? { type: nb.neighbor, aux: fw(nb.neighborAux) } : null,
       runner_up: bc.rank[1][0], margin_log10: margin,

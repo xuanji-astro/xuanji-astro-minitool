@@ -419,6 +419,7 @@ function strengthCard(st) {
     return h('div', { class: 'card' },
       h('div', { class: 'row' }, h('div', {}, h('div', { class: 'lb', text: '玄玑结论 · 你亲手定的' }), h('div', { class: 'type', text: st.calib.type })), img('mark', 'fe-mark')),
       rows(voteRows.concat([['你的校正', `身${st.side}（定案）`]])),
+      st.calib.flip ? h('p', { class: 'cal-flip', text: st.calib.flip }) : null,
       h('div', { class: 'cal-g4' }, st.calib.cards.map((c) => h('div', {}, h('b', { text: c.title }), h('p', { text: c.text })))),
       st.flip ? h('div', { class: 'kv fe-chg' }, h('div', { class: 'r' }, h('span', { text: '喜用' }), h('b', {}, h('s', { text: st.flip.favorable.join('') }), st.favorable.join(''))), h('div', { class: 'r' }, h('span', { text: '忌' }), h('b', {}, h('s', { text: st.flip.unfavorable.join('') }), st.unfavorable.join('')))) : null,
       h('p', { class: 'fe-line', text: st.calib.say }), again('重新校正 ›'));
@@ -506,13 +507,13 @@ function calibRes() {
   const T = S.calTry, o = window.XJ.compute({ ...EFF(), calib: T }), r = o.method.bazi && o.method.bazi.calib && o.method.bazi.calib.result;
   const home = S.cal ? S.cal.home : 1;
   if (!r || r.status !== '定案') {
-    return h('section', { class: 'v' }, h('div', { class: 'eyebrow', text: 'STRENGTH · 身强身弱' }), h('div', { class: 'card cal-res none' }, h('h2', { class: 'h2', text: '这些答案，两边差不太多' }), h('p', { class: 'lead', text: '先保持原来的看法。回去多填几件大事，再看一次。' })),
+    return h('section', { class: 'v' }, h('div', { class: 'eyebrow', text: 'STRENGTH · 身强身弱' }), h('div', { class: 'card cal-res none' }, h('h2', { class: 'h2', text: '这些答案，两边差不太多' }), h('p', { class: 'lead', text: r && r.say ? r.say.replace(/^回答两边差不多，/, '') : '先保持原来的看法。回去多填几件大事，再看一次。' })),   // 10-14 起照引擎给的话（命理组：还是按原来的偏X看）
       h('div', { class: 'cal-nav' }, h('button', { class: 'fe-skip', type: 'button', text: '回去补经历', on: { click: goBack } }), h('button', { class: 'cta dark', type: 'button', text: '知道了', on: { click: () => { S.calNone = true; S.tab = 'verify'; unwind(home); } } })));
   }
   const fav = o.method.bazi.useful ? o.method.bazi.useful.favorable : [];
   return h('section', { class: 'v' }, h('div', { class: 'eyebrow', text: 'STRENGTH · 身强身弱' }),
     h('div', { class: 'card cal-res' }, h('div', { class: 'cal-rh' }, h('span', { text: '你的校正结果为：' }), h('button', { class: 'fe-again', type: 'button', text: '重新校正', on: { click: () => { S.cal.traits = Array(8).fill(null); unwind(home + 1); } } })),
-      h('div', { class: 'cal-type', text: `【${r.type}】` }),
+      h('div', { class: 'cal-type', text: `【${r.type}】` }), r.flip ? h('p', { class: 'cal-flip', text: r.flip }) : null,   // 定到盘面原判的反面要明说（10-13 命理组，同网站）
       h('div', { class: 'cal-g4' }, r.cards.map((c) => h('div', {}, h('b', { text: c.title }), h('p', { text: c.text })))),
       fav.length ? rows([['喜用', fav.join('、')]]) : null,
       h('p', { class: 'fe-line', text: r.say })),

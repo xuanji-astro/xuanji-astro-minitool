@@ -43,7 +43,7 @@ function parseInput(b) {
   if (b.answers != null && (!Array.isArray(b.answers) || b.answers.length > 12 || !b.answers.every(ok))) throw new InputError('ANSWERS_INVALID', 'answers 是 [{ year, pick }]，pick 只能是 弱、强、都沾、记不清，最多 12 条');
   // 身强身弱校正（照网站校正页的问法，10-10，见 calib.js）：8 道性格题选的哪一项＋自己说的几件大事；接口算分，定了就照网站那样转成回答
   const calib = b.calib == null ? null : calibParse(b.calib);
-  if (b.calib != null && !calib) throw new InputError('CALIB_INVALID', 'calib 是 { traits: [8 个 A–E 或 null], events: [{ domain, event, year, good }] }，events 最多 30 条');
+  if (b.calib != null && !calib) throw new InputError('CALIB_INVALID', 'calib 是 { traits: [8 个 A–F 或 null，F＝说不准], events: [{ domain, event, year, good }] }，events 最多 30 条');
   return {
     date: b.date, y: +m[1], mo: +m[2], d: +m[3], h, mi, city: String(b.city).trim(), place, gender: b.gender,
     time_source: TIME_SOURCES.includes(b.time_source) ? b.time_source : 'unknown',
@@ -71,7 +71,7 @@ function calibInput(inp, view) {
   const mb = view && view.method && view.method.bazi, ck = mb && mb.check;
   if (inp.strength || !ck || !ck.enough) return { ...inp, calib_result: { schema: CALIB_SCHEMA, status: '不适用', side: null, why: inp.strength ? '已经传了 strength' : '这张盘不做校正（时辰不详、特殊格局，或近几年没有能对照的年份）' } };
   const vote = mb.strength && mb.strength.vote;
-  const sc = calibScore(inp.calib, { favIf: vote && vote.favorable_if, cycles: view.bazi && view.bazi.bazi && view.bazi.bazi.luck ? view.bazi.bazi.luck.cycles : [] });
+  const sc = calibScore(inp.calib, { favIf: vote && vote.favorable_if, cycles: view.bazi && view.bazi.bazi && view.bazi.bazi.luck ? view.bazi.bazi.luck.cycles : [], verdict: vote && vote.verdict });
   const answers = calibAnswers(ck, sc.side);
   return { ...inp, ...(answers ? { answers } : {}), calib_result: calibResult(sc, answers) };
 }

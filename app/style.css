@@ -450,6 +450,7 @@ body.scrolled::before { opacity: 1; }
 .fe-chg .r b s { color: var(--faint); text-decoration: none; font-weight: 400; }
 .fe-chg .r b s::after { content: ' → '; }
 .fe-line { font-size: 13px; color: var(--sub); line-height: 1.7; margin-top: 8px; }
+.cal-flip { margin: -4px 0 12px; text-align: center; font-size: 12px; letter-spacing: .06em; color: var(--warn); }   /* 10-14 定到盘面原判的反面要明说 */
 .fe-term { font-size: 12.5px; color: var(--accent); margin: 2px 0 4px; letter-spacing: .02em; }
 .fe-focus { font-size: 12.5px; color: var(--sub); margin: -2px 0 4px; }
 .fe-opt { display: block; width: 100%; text-align: left; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-top: 8px; font-size: 14px; line-height: 1.6; color: var(--ink); background: #fff; }
