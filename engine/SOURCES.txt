@@ -1,5 +1,5 @@
 # 引擎来源（scripts/sync_engine.sh 生成，别手改）
-xuanji-profile-api e61f44d
+xuanji-profile-api e61f44d（另加 10-28 夏令时 1986 修正，同接口 rc15 8e90777 那一处：vendor 两份 CN_DST 1986 起始日 [5,4]→[4,5]）
 xuanji-paipan      b8b1928
 mingyu-core        0.3.0
 xuanji-skill        0.1.0-rc.10（scripts/rectify.mjs，提交 12abdad）
@@ -45,7 +45,7 @@ c5829013950caf058c52a895590fb3dca6d741a57ba895971d0fb231c0c7f4ab  src/transits.j
 561d45a9c7fc2125db734a45fa8072d5f47069768c00f6dec69e43aac70779bf  vendor/asteroid-ephem.js
 f41139a87941ea017ab902b954c9389fa27ea72083d7fab4971756d7769d14e6  vendor/astronomy.js
 55f923d08f8412d957866f37fe42724420809bc89ebb73abfb293e4347142a5a  vendor/cities.js
-5c4ae79beba7ea9f8fafc3b7cb8685a60fd3ae55f4ef1f0445a0954c69d5f286  vendor/computeNatal_受控版.js
+a6c2e9642fc45a73ca3ee62706ca23ec4c0a2ff2fedd85ad790a2bb297744fb5  vendor/computeNatal_受控版.js
 ab4604ff0f7e69d335edbf54b10dad3686d2cb9c71948a6e7ca2de39b7263c1c  vendor/engine_mbti_core.js
 f7ee302e2adb8d94a8ab2f3351c878273e5a4a0be7a802932727a183f6a63a71  vendor/ruler_v0.js
 ad7275a105ccfb9d47ee3af15ce8b4dba109988cc3be5a3c48b5ecc6a6a83f6d  vendor/site_words/advice-cards.js
@@ -54,7 +54,7 @@ e58cff51e26b729603a41a1622761609f0dd1a7e5b7cf8be330780128410b32b  vendor/site_wo
 101e4f3235465bcc31af35dbdc83a4ed6155de9629ca7c18438bf74b8198c8ca  vendor/site_words/lucky.js
 939276b904ab1939088e8431ed5d2c45fb686d4fb3b51c3bdbaf9cb1aa79e103  vendor/site_words/shensha-origins.js
 7bfd6646b5e59eb8b7a4774ba69430d2f71b961db492beddb11d705ce6a654fc  vendor/site_words/shensha-words.js
-e694d469f13b8f1146d963019b0b60615afb21cb21c29486a4cc0734581f046c  vendor/tianji_personal.js
+f54509adad36f06c6e131f51a87681787e195b91b216f3695b69fd8172af6c42  vendor/tianji_personal.js
 951bb27c966b1aac9e99b434dabbacb55ac5c653375f57a541c80dc205dd3708  vendor/yiqi_wangshuai/LICENSE
 6f035cac707e751da849be9f9cba95169998f3f0ec783d2989f79a9b178a475d  vendor/yiqi_wangshuai/README.md
 4e45e16a2a4cf37717a867ae038deaca04fe38773dfa952a6289acff399e8728  vendor/yiqi_wangshuai/tables.js

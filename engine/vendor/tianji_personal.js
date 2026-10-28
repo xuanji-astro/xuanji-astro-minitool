@@ -82,7 +82,7 @@ function isRx(b,date){
 }
 // 与 index.html computeNatal 同源的两个小助手(出生时刻→真实UTC)
 function toUTC(y,mo,d,h,mi,tzOffset){return new Date(Date.UTC(y,mo-1,d,h,mi)-tzOffset*3600*1000);}
-const CN_DST={1986:[[5,4],[14,9]],1987:[[12,4],[13,9]],1988:[[17,4],[11,9]],1989:[[16,4],[17,9]],1990:[[15,4],[16,9]],1991:[[14,4],[15,9]]};
+const CN_DST={1986:[[4,5],[14,9]],1987:[[12,4],[13,9]],1988:[[17,4],[11,9]],1989:[[16,4],[17,9]],1990:[[15,4],[16,9]],1991:[[14,4],[15,9]]};
 function cnDstAdjust(y,mo,d,h){
   if(!CN_DST[y]) return 0;
   const [[sd,sm],[ed,em]]=CN_DST[y];
