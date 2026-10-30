@@ -2,6 +2,8 @@
 // 用在两处：对话里的验前事（过去的候选窗口）、报告里的节奏日历（往后五年）。
 const { westYearlyV1, westWindows, lifeCycles } = require('./transits.js');
 const { natal } = require('./engines.js');
+const { kpNatalDeep } = require('../vendor/kp_natal_deep.js');
+const MARRY = require('../config/age-marriage-window.json');
 
 const GAN = '甲乙丙丁戊己庚辛壬癸', ZHI = '子丑寅卯辰巳午未申酉戌亥';
 const GEL = ['木', '木', '火', '火', '土', '土', '金', '金', '水', '水'];
@@ -37,6 +39,43 @@ function zhouSui(birthDate, at) {
   return d[0] - by - (d[1] < bm || (d[1] === bm && d[2] < bd) ? 1 : 0);
 }
 const yearAge = (birthDate, y) => zhouSui(birthDate, `${y}-12-31`);
+
+function ageLayer(sex, currentYear, currentAge) {
+  const note = '按年纪推的常见节点和窗口，不是盘算的；群体规律，只定窗口宽窄，不报百分比';
+  const base = currentYear - currentAge;
+  const nodes = [[18, 18, '高考前后'], [22, 22, '本科毕业前后'], [23, 24, '第一份工作前后']]
+    .filter(([fromAge]) => fromAge <= currentAge)
+    .map(([fromAge, toAge, label]) => {
+      const capped = Math.min(toAge, currentAge);
+      return { from_age: fromAge, to_age: capped, from_year: base + fromAge, to_year: base + capped, label };
+    });
+  const row = MARRY.rows[`${sex === 'female' ? '女' : '男'}${currentAge}`];
+  const marry = row && row.mid ? {
+    basis: '七普城市口径·假定队列', median_years: row.median, mid_years: row.mid,
+    mid_year_range: row.mid.map((k) => currentYear + k - 1),
+  } : { none: true, text: '按年纪没有集中的窗口，主要看现状' };
+  return { note, nodes, marry };
+}
+
+const LOVE_NOTE = 'love_years＝KP 本命深度版算的感情容易动的几年，问感情时间时只当一票，放在现状之下、年纪之上，不单独定年份';
+const loveCache = new Map();
+function loveYears(birth, currentYear) {
+  if (!birth || birth.h == null || birth.time_source === 'unknown' || birth.time_source === 'family_rough' || birth.time_precision === 'unknown') return null;
+  const { lat, lon } = birth.place || {};
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -66 || lat > 66) return null;
+  const isoTime = `${birth.date}T${String(birth.h).padStart(2, '0')}:${String(birth.mi).padStart(2, '0')}:00+08:00`;
+  const key = `${isoTime}|${lat}|${lon}|${currentYear}`;
+  if (loveCache.has(key)) return loveCache.get(key);
+  try {
+    const top = kpNatalDeep({ isoTime, lat, lon, startYear: currentYear, endYear: currentYear + 9, topCount: 3 }).topYears;
+    const out = top.map((x, i) => ({ year: x.year, rank: i + 1 }));
+    loveCache.set(key, out);
+    return out;
+  } catch (error) {
+    console.error('[kp_love_years]', error && error.stack ? error.stack : error);
+    return null;
+  }
+}
 // ── 学龄（10-06 定）：22 岁及以下按学业说（context＝学业：工作那块说成学业、考试、升学）；
 //    不满 18 岁：钱、官非、感情整类不出（不是降灰——小孩盘里冒感情危机既不准也不妥）；18～22 岁：钱、感情降灰，官非不出。
 //    取代 v2.1 的「十四岁以下感情灯降灰」。八字、西盘两边一起收，所以同亮、验前事、往后的年份里也不会出现。
@@ -507,12 +546,16 @@ function timing(bz, N, sex, now = new Date(), opt = {}) {   // opt.lite：合盘
     const natalAt = (dt) => { const l = new Date(dt.getTime() + 8 * 36e5); return natal({ y: l.getUTCFullYear(), mo: l.getUTCMonth() + 1, d: l.getUTCDate(), h: l.getUTCHours(), mi: l.getUTCMinutes(), tz: 8, lat: 35, lon: 116, sex: '女' }); };   // 只取凯龙、交点黄经，和地点无关
     life = lifeCycles(N, new Date(Date.UTC(y, mo - 1, d, hh - 8, mm)), natalAt, 90);
   }
+  const currentAge = years.find((r) => r.year === nowY)?.age ?? yearAge(birthD, nowY);
+  const love = opt.lite ? null : loveYears(opt.birth, nowY);   // bazi_view 会丢掉这块，别白算一遍
   return {
     schema: 'xuanji.timing/0.4',
-    note: '八字应期 v2.1（10-01 定版：主从记账、成局双向、刑害全四柱、官非／事业开局／名分新规则、迁移合成）＋10-06 粉丝反馈修正（学龄：22 岁及以下 context＝学业，不满 18 岁钱折回家庭（1:1 同年合并）、官非／感情不出，18～22 岁钱／感情降灰、官非不出；换挡年 shift＝交脱窗口内的弱同亮（同一块两边都 ≥1.5）；合日支 0.5 单独不亮；偏财落点：年月柱→家庭（父）、时柱→钱、日柱被冲→感情）＋西盘行运 v1；age＝周岁（那年过完生日）；past_candidates 只给两套同亮的年份（验前事只说双轨同亮）；mirror＝两套同一年同一块人生都亮；years 到今年＋9；months＝近三年西盘月历（只列窗口不打分）；months_bazi＝近三年八字流月高发月（流月 v1，只细化已亮灯的流年）；life_cycles＝一生西盘大周期',
+    note: '八字应期 v2.1（10-01 定版：主从记账、成局双向、刑害全四柱、官非／事业开局／名分新规则、迁移合成）＋10-06 粉丝反馈修正（学龄：22 岁及以下 context＝学业，不满 18 岁钱折回家庭（1:1 同年合并）、官非／感情不出，18～22 岁钱／感情降灰、官非不出；换挡年 shift＝交脱窗口内的弱同亮（同一块两边都 ≥1.5）；合日支 0.5 单独不亮；偏财落点：年月柱→家庭（父）、时柱→钱、日柱被冲→感情）＋西盘行运 v1；age＝周岁（那年过完生日）；past_candidates＝两家同一年同一块都亮的年份，只当验前事的主题参考，年份按 age_layer.nodes 挑；mirror＝两家都指这一块，只当这一年的主题；years 到今年＋9；months＝近三年西盘月历（只列窗口不打分）；months_bazi＝近三年八字流月高发月（流月 v1，只细化已亮灯的流年）；life_cycles＝一生西盘大周期；' + LOVE_NOTE,
     months, months_bazi: monthsBazi, life_cycles: life,
+    age_layer: ageLayer(sex, nowY, currentAge),
+    ...(love ? { love_years: love } : {}),
     years: years.map((r) => ({ ...r, bazi: Object.fromEntries(Object.entries(r.bazi).map(([k, v]) => [k, { w: round(v.w), why: v.why, neg: !!v.neg }])), west: Object.fromEntries(Object.entries(r.west).map(([k, v]) => [k, { w: round(v.w), why: v.why }])) })),
-    past_candidates: cand.filter((c) => c.year < nowY && c.mirror).sort(byStrength).slice(0, 8),
+    past_candidates: cand.filter((c) => c.year < nowY && c.mirror).sort((a, b) => a.year - b.year || byStrength(a, b)).slice(0, 8),
     future: cand.filter((c) => c.year >= nowY).sort((a, b) => a.year - b.year || byStrength(a, b)),
     shift_years: years.filter((r) => r.shift).map((r) => ({ year: r.year, age: r.age, context: r.context, ...r.shift })),   // 换挡年：单列，不进同亮
   };
@@ -528,4 +571,11 @@ function baziLights(bz, sex, from, to) {   // 学龄照样收：小孩的年份�
   return out;
 }
 
-module.exports = { timing, baziLights, baziYear, baziYearV1, baziYearV2, group, groupV1, groupV2, shishen, zhouSui, yearAge, STAGE };
+// rc.13 年度：任意一年的八字流月高发月（同 timing 里近三年那段的算法，只是年份由调用方给）
+function liuyueYear(bz, sex, y) {
+  if (!bz || bz.status !== 'ok') return [];
+  const ag = yearAge(bz.input.date, y), b0 = baziYearV2(bz, sex, y), b = { ...b0, sig: minorSig(b0.sig, ag) }, bd = stageFilter(groupV2(b).lit, ag);
+  const lit = Object.keys(bd).filter((k) => bd[k].w >= 2.5 && k !== '全局');
+  return lit.length ? liuyue(bz, sex, y, lit, b.sig) : [];
+}
+module.exports = { timing, ageLayer, loveYears, baziLights, baziYear, baziYearV1, baziYearV2, group, groupV1, groupV2, shishen, zhouSui, yearAge, STAGE, liuyueYear };
