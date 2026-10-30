@@ -25,11 +25,13 @@ function compute(body, { now = new Date(), lite = false } = {}) {
   let inp = parseInput(body);
   const N = natalOf(inp);
   let bz = baziLocal(inp);
-  // 同 profile.js withCalib（10-10）：身强身弱校正（8 道题＋大事）——先照没答题的样子排一遍算分，定了就把出过题的纯年按那一边当回答，后面照原来那条路
+  // 同 profile.js withCalib：身强身弱校正（8 道题＋大事、一段时间、转折年）——先照没答题的样子排一遍，拿盘上几套喜用逐套对经历（rc.16），定了就按那一套
   if (inp.calib) {
     const inp1 = { ...inp, answers: null, calib: null }, a1 = autoSideOf(inp1, bz, null);
     let b1 = bz; if (a1) { const r = baziLocal({ ...inp1, strength: a1 }); if (r.status === 'ok') b1 = r; }
     inp = calibInput(inp, assemble(inp1, null, b1, { version: XJ_VERSION, lite: true, now, auto: a1 }));
+    // 同 profile.js（rc.16）：校正定到扶抑某一边，带定案再排一次；定到调候、格局不用重排
+    if (inp.strength_by === '你的经历') { const b2 = baziLocal(inp); if (b2.status === 'ok') bz = b2; }
   }
   // 同 profile.js：「核一核」的回答里身强身弱定了，当作核过的定案带着再排一次；派别由 assemble 按回答挑（10-08 起，跟 Skill、Kimi 同一套）
   const fromAns = strengthOfAnswers(inp, bz);

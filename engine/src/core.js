@@ -5,7 +5,7 @@ const { baziMethod, westMethod, personaMethod } = require('./method.js');
 const { strengthVote } = require('./strength.js');
 const { feelAsk, feelScore } = require('./feel.js');
 const { checkPlan, checkScore, schoolsBrief } = require('./schoolvote.js');
-const { calibAsk, calibParse, calibScore, calibAnswers, calibResult, SCHEMA: CALIB_SCHEMA } = require('./calib.js');
+const { calibAsk, calibParse, calibSets, consensusSet, calibPick, calibResult2, SCHEMA: CALIB_SCHEMA } = require('./calib.js');
 const { turnText } = require('./schoolwords.js');
 const W = require('./words.js');
 const { pickQuotes } = require('./quotes.js');
@@ -43,7 +43,7 @@ function parseInput(b) {
   if (b.answers != null && (!Array.isArray(b.answers) || b.answers.length > 12 || !b.answers.every(ok))) throw new InputError('ANSWERS_INVALID', 'answers 是 [{ year, pick }]，pick 只能是 弱、强、都沾、记不清，最多 12 条');
   // 身强身弱校正（照网站校正页的问法，10-10，见 calib.js）：8 道性格题选的哪一项＋自己说的几件大事；接口算分，定了就照网站那样转成回答
   const calib = b.calib == null ? null : calibParse(b.calib);
-  if (b.calib != null && !calib) throw new InputError('CALIB_INVALID', 'calib 是 { traits: [8 个 A–F 或 null，F＝说不准], events: [{ domain, event, year, good }] }，events 最多 30 条');
+  if (b.calib != null && !calib) throw new InputError('CALIB_INVALID', 'calib 是 { traits: [8 个 A–F 或 null，F＝说不准], events: [{ domain, event, year, good }]（最多 30 条）, periods: [{ from, to, good }]（最多 6 段、每段不超过 15 年）, turns: [{ year, up }]（最多 6 个） }');
   return {
     date: b.date, y: +m[1], mo: +m[2], d: +m[3], h, mi, city: String(b.city).trim(), place, gender: b.gender,
     time_source: TIME_SOURCES.includes(b.time_source) ? b.time_source : 'unknown',
@@ -68,12 +68,22 @@ function strengthOfAnswers(inp, bz) {
 // （跟网站 calibratePage 一样），接着走原来那条路定身强身弱、挑派。没对上：照用户传的 answers（没传就是没核过）。传了 strength 不收校正
 function calibInput(inp, view) {
   if (!inp.calib) return inp;
-  const mb = view && view.method && view.method.bazi, ck = mb && mb.check;
-  if (inp.strength || !ck || !ck.enough) return { ...inp, calib_result: { schema: CALIB_SCHEMA, status: '不适用', side: null, why: inp.strength ? '已经传了 strength' : '这张盘不做校正（时辰不详、特殊格局，或近几年没有能对照的年份）' } };
-  const vote = mb.strength && mb.strength.vote;
-  const sc = calibScore(inp.calib, { favIf: vote && vote.favorable_if, cycles: view.bazi && view.bazi.bazi && view.bazi.bazi.luck ? view.bazi.bazi.luck.cycles : [], verdict: vote && vote.verdict });
-  const answers = calibAnswers(ck, sc.side);
-  return { ...inp, ...(answers ? { answers } : {}), calib_result: calibResult(sc, answers) };
+  const mb = view && view.method && view.method.bazi, bzv = view && view.bazi, vote = mb && mb.strength && mb.strength.vote;
+  const na = (why) => ({ ...inp, calib_result: { schema: CALIB_SCHEMA, status: '不适用', side: null, why } });
+  if (inp.strength || inp.school) return na('已经传了 strength 或 school');
+  if (inp.h === null || !bzv || bzv.status !== 'ok' || !bzv.bazi.schools || !vote) return na('这张盘不做校正（时辰不详，或排盘服务没给出几派的喜用）');
+  // 10-30 新办法（见 calib.js）：候选＝盘上几派的喜用，经历逐套对；特殊格局（从格）也进来，格局派那套就是从格的
+  const sets = calibSets(bzv.bazi.schools);
+  if (sets.length < 2) return na('这张盘几派给的喜用一样，不用校正');
+  const vd = vote.verdict || {}, base = (vd.side === '强' || vd.side === '弱') && (vd.agree === '一致' || vd.agree === '多数') || !!vd.special;
+  const sc = mb.school, dflt = sc ? (sc.name === '扶抑' ? `扶抑·${sc.side}` : sc.name) : sets[0].key;
+  const pk = calibPick(inp.calib, { sets, dflt, base, cycles: bzv.bazi.luck ? bzv.bazi.luck.cycles : [], fi: vote.favorable_if });
+  const set = sets.find((c) => c.key === pk.key), D = sets.find((c) => c.key === dflt || c.also.includes(dflt));
+  const res = calibResult2(pk, set, D ? (D.school === '扶抑' ? `身${D.side}` : `喜${D.fav.join('、')}`) : null);
+  res.used = { traits: inp.calib.traits.filter((j) => j != null).length, events: inp.calib.events.length, periods: (inp.calib.periods || []).length, turns: (inp.calib.turns || []).length };
+  if (res.status !== '定案') return { ...inp, calib_result: res };   // 没定：老的「核一核」回答（answers）照旧走原来那条路
+  // 定了：按这一套上色，扶抑派连身强身弱一起定（喜忌、时间线跟着重排）；疑似从强那套照「格局·从强」核中的走法
+  return { ...inp, answers: null, school: set.school, school_by: '你的经历', ...(set.school === '扶抑' ? { strength: set.side, strength_by: '你的经历' } : {}), ...(set.doubt ? { qiang: true } : {}), calib_result: res };
 }
 
 // 盘面快照：与 index.html _chartDataOf 同形状（档案 charts.chart_data 也是这份）
@@ -151,10 +161,10 @@ const withQiang = (bz) => ({ ...bz, bazi: { ...bz.bazi, schools: { ...bz.bazi.sc
 function assemble(inp, N, bz0, { version, lite, now = new Date(), auto = null } = {}) {
   // 胜出的派：身强身弱那一边按定案、自动结论、几种判法的起点依次取（只有扶抑派用得上）
   const ok0 = bz0 && bz0.status === 'ok', v0 = ok0 && bz0.bazi.schools ? strengthVote(bz0) : null, vs0 = v0 && v0.verdict.side;
-  let schoolSide = inp.strength || auto || (vs0 === '强' || vs0 === '弱' ? vs0 : null), school = inp.school, schoolBy = inp.school ? '指定' : null;
+  let schoolSide = inp.strength || auto || (vs0 === '强' || vs0 === '弱' ? vs0 : null), school = inp.school, schoolBy = inp.school ? (inp.school_by || '指定') : null;
   // 带了回答、没指定派：按回答挑胜出的派（只看问过的年份上各派的预言，跟挑年的先后无关）
   const dmOf = () => bz0.bazi.pillars.day.gan, ansDm = inp.answers && ok0 ? inp.answers.map((a) => ({ ...a, dm: dmOf() })) : null;
-  let ckStatus = null, bzS = bz0;
+  let ckStatus = null, bzS = inp.qiang && ok0 && bz0.bazi.schools && bz0.bazi.schools.geju && bz0.bazi.schools.geju.qiang_doubt ? withQiang(bz0) : bz0;
   if (!school && ansDm && bz0.bazi.schools) {
     const p0 = checkPlan({ dm: dmOf(), P: bz0.bazi.pillars, nowY: now.getFullYear(), birthY: +bz0.input.date.slice(0, 4), lights: null, schools: bz0.bazi.schools, strengthSide: schoolSide, strengthNeed: false });
     const sc0 = p0 && p0.enough ? checkScore(dmOf(), ansDm, p0) : null, pref = sc0 && sc0.schools.prefer;
@@ -167,6 +177,12 @@ function assemble(inp, N, bz0, { version, lite, now = new Date(), auto = null } 
   // 我们替他定或他做题定）。按主干先后整派取，不拼各派的一半：扶抑（身强身弱有方向、不是特殊格局）→ 格局 → 调候；页面标「还没核准」
   const requested = school;
   let viewed = school ? schoolView(bzS, school, schoolSide) : null;
+  // 10-30：强弱定不了（几种判法没方向）、又不是特殊格局的盘，不再按施工顺序落到格局派：取跟几派说法最一致的那一套（见 calib.js consensusSet），整套取不拼半套
+  if (!viewed && ok0 && bz0.bazi.schools && !schoolSide && !(v0 && v0.verdict.special)) {
+    const c = consensusSet(calibSets(bz0.bazi.schools), v0 && v0.votes);
+    const v = c && schoolView(bzS, c.school, c.side);
+    if (v) { school = c.school; schoolBy = '默认'; viewed = v; if (c.school === '扶抑') schoolSide = c.side; }
+  }
   if (!viewed && ok0 && bz0.bazi.schools) {
     for (const nm of ['扶抑', '格局', '调候']) {
       if (nm === '扶抑' && (!schoolSide || (v0 && v0.verdict.special))) continue;
@@ -221,7 +237,7 @@ function assemble(inp, N, bz0, { version, lite, now = new Date(), auto = null } 
         return m; })(),
       west: westMethod(N),
       persona: ch ? personaMethod(ch, MBTI.derive(ch), MBTI.tools(ch), `${birth.date} ${birth.time} ${birth.city} ${birth.sex}`) : null,
-      timing: timing(applied ? { ...bz, bazi: { ...bz.bazi, strength: SIDE_STATUS[eff] } } : bz, N, inp.gender, now, { lite }),
+      timing: timing(applied ? { ...bz, bazi: { ...bz.bazi, strength: SIDE_STATUS[eff] } } : bz, N, inp.gender, now, { lite, birth: inp }),
     },
   };
   // 引语候选：按生辰种子和今年顺逆从引语库挑，报告只许用这几句
@@ -248,7 +264,9 @@ function assemble(inp, N, bz0, { version, lite, now = new Date(), auto = null } 
     const ck = out.method.bazi.check;
     if (ansDm && ck && ck.enough) ck.score = { ...checkScore(dmOf(), ansDm, ck), ...(inp.strength_by === '核核你' ? { strength_from_answers: inp.strength } : {}) };
     // 身强身弱校正（10-10）：能核的盘给题（8 道性格题＋大事，跟网站同一套）；带了 calib 再给结果（身X型、四格；没对上一句话）
-    if (ck && (ck.enough || inp.calib_result)) out.method.bazi.calib = { ...(ck.enough ? { ask: calibAsk() } : {}), result: inp.calib_result || null };
+    // 10-30：只要时辰知道、盘上至少两套不一样的喜用，就给题（特殊格局也给，从格那套跟普通几派一起拿经历对）
+    const canCal = inp.h !== null && calibSets(bz0.bazi.schools).length >= 2;
+    if (canCal || inp.calib_result) out.method.bazi.calib = { ...(canCal ? { ask: calibAsk() } : {}), result: inp.calib_result || null };
   }
   out.method.quotes = pickQuotes(`${birth.date} ${birth.time || ''} ${birth.city} ${birth.sex}`, ty ? ty.tier : null);
   return out;

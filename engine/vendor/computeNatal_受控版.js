@@ -1,4 +1,4 @@
-/* 排盘核心 · 从 Godness/index.html 第 2001~2259 行整段抽出（受控版）
+/* 排盘核心 · 从 Godness/index.html 第 2082~2342 行整段抽出（受控版）
    ⚠️ 不要手改这个文件：改 index.html 之后重跑 extract_natal.py。
    含：computeNatal / Placidus 宫位 / 相位表 ASPECTS / 中国夏令时 CN_DST(1986-1991) / 福点。
    依赖：astronomy.js（window.Astronomy）。
@@ -154,12 +154,14 @@ function meanNode(date){
   let om=125.04452-1934.136261*T+0.0020708*T*T+T*T*T/450000;
   return ((om%360)+360)%360;
 }
-// 平黑月莉莉丝(月亮远地点黄经, 度)= 月亮近地点黄经+180
+// 平黑月莉莉丝(月亮远地点黄经, 度)= 月亮近地点黄经+180，再从月球轨道面投影到黄道
+// 10-11 修：之前少了投影，跟瑞士星历差 ±7′（轨道倾角 5.145° 造成，随远地点离交点的角度来回摆）；投影后 1900–2100 差 ≤0.3′
 function meanLilith(date){
   const T=julianCenturies(date);
-  // 月亮近地点黄经 ϖ (perigee, 度)
+  // 月亮近地点黄经 ϖ (perigee, 度)：沿月球轨道量的
   let perigee=83.3532465+4069.0137287*T-0.0103200*T*T-T*T*T/80053+T*T*T*T/18999000;
-  let lilith=perigee+180;
+  const node=meanNode(date), u=(perigee+180-node)*Math.PI/180, inc=5.1453964*Math.PI/180;
+  let lilith=node+Math.atan2(Math.cos(inc)*Math.sin(u),Math.cos(u))*180/Math.PI;
   return ((lilith%360)+360)%360;
 }
 

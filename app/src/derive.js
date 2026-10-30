@@ -77,7 +77,8 @@ export function strength(out, fs, held, base = null, cal = null) {
 function calibMine(out, cal, base) {
   const u = (o) => (o && o.method.bazi && o.method.bazi.useful ? o.method.bazi.useful : null), was = base && base !== out ? u(base) : null, now = u(out);
   const old = was && now && (was.favorable.join('') !== now.favorable.join('') || was.unfavorable.join('') !== now.unfavorable.join('')) ? was : null;
-  return { calib: cal, mine: true, verdict: SIDE_WORD[cal.side], side: cal.side, kind: null, review: null, agree: '你亲手定的', hold: null, turned: false,
+  // rc.16：定到调候、格局（side 为空）时结论写那一套的喜用（「喜火、水」），不说身强身弱
+  return { calib: cal, mine: true, verdict: cal.side ? SIDE_WORD[cal.side] : cal.type, side: cal.side, kind: null, review: null, agree: '你亲手定的', hold: null, turned: false,
     ...(old ? { flip: { favorable: old.favorable, unfavorable: old.unfavorable } } : {}) };
 }
 // 你亲手定的：结论换成你的。定案跟你先看到的结论方向相反时，整盘已按定案重算（喜用、大运、时间线），这里摆出你先看到的喜用作对照

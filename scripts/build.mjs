@@ -37,6 +37,7 @@ const plugin = {
   setup(b) {
     b.onResolve({ filter: /^(fs|vm|path)$/ }, (a) => ({ path: path.join(B, `shim_${a.path}.js`) }));
     b.onResolve({ filter: /^\.\/engines\.js$/ }, (a) => (a.importer.startsWith(path.join(E, 'src')) ? { path: path.join(B, 'engines.browser.js') } : undefined));
+    b.onResolve({ filter: /^\.\/astronomy\.js$/ }, (a) => (a.importer === path.join(E, 'vendor', 'kp_natal_deep.js') ? { path: path.join(B, 'shim_astronomy.js') } : undefined));   // love_years 用页面上那份 Astronomy
     b.onResolve({ filter: /^xjwrap:/ }, (a) => ({ path: a.path.slice(7), namespace: 'xjwrap' }));
     // Skill 的定时辰脚本：只用它的打分函数；命令行入口、读写本地文件、接口客户端在浏览器里用垫片顶（打分代码一字不改）
     const SK = path.join(E, 'skill');
@@ -55,7 +56,7 @@ const plugin = {
 };
 
 const sha12 = (f) => crypto.createHash('sha256').update(fs.readFileSync(path.join(E, 'vendor', f))).digest('hex').slice(0, 12);
-const VERSION = { schema: 'xuanji.handoff/0.1', natal: sha12('computeNatal_受控版.js'), astro_mbti: sha12('engine_mbti_core.js') };   // 同 profile.js VERSION
+const VERSION = { schema: 'xuanji.handoff/0.1', natal: sha12('computeNatal_受控版.js'), astro_mbti: sha12('engine_mbti_core.js'), asteroids: sha12('asteroid-ephem.js') };   // 同 profile.js VERSION（印度占星、紫微小工具里没有，不带那两项）
 const nm = [path.join(ROOT, 'node_modules'), path.join(ROOT, '..', 'xuanji-paipan', 'node_modules')].filter((p) => fs.existsSync(p));
 
 const r = await esbuild.build({

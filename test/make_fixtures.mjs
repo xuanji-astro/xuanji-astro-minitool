@@ -8,7 +8,9 @@ const API = process.argv[2] || path.join(ROOT, '..', 'xuanji-profile-api');
 const require = createRequire(import.meta.url);
 const { parseInput, natalOf, autoSideOf, strengthOfAnswers, calibInput, assemble } = require(path.join(API, 'src', 'core.js'));
 const { paipan, InputError } = await import(path.join(API, '..', 'xuanji-paipan', 'src', 'paipan.js'))   // engine/paipan 是它的原样拷贝（SOURCES.txt 核 sha）;
-const { VERSION } = require(path.join(API, 'src', 'profile.js'));
+// 同 scripts/build.mjs 的 VERSION：按小工具自己 engine/vendor 里那几份算（公开前清过注释的文件号跟接口不同），印度占星、紫微小工具里没有
+const sha12 = (f) => crypto.createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'engine', 'vendor', f))).digest('hex').slice(0, 12);
+const VERSION = { schema: 'xuanji.handoff/0.1', natal: sha12('computeNatal_受控版.js'), astro_mbti: sha12('engine_mbti_core.js'), asteroids: sha12('asteroid-ephem.js') };
 
 let s = 20261002; const rnd = () => { s |= 0; s = (s + 0x6D2B79F5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 const CITIES = ['北京', '上海', '广州', '深圳', '成都', '重庆', '武汉', '西安', '杭州', '南京', '沈阳', '哈尔滨', '昆明', '乌鲁木齐', '拉萨', '福州', '长沙', '郑州', '济南', '兰州', '南宁', '海口', '浙江省宁波市鄞州区', '四川省绵阳市涪城区'];
@@ -32,6 +34,7 @@ const build = (body) => {
   let bz = one(inp.strength);
   // 同 browser/entry.js（＝profile.js withCalib）：身强身弱校正先照没答题的样子排一遍算分，定了就把出过题的纯年按那一边当回答
   if (inp.calib) { const inp1 = { ...inp, answers: null, calib: null }, a1 = autoSideOf(inp1, bz, null); let b1 = bz; if (a1) { const r = one(a1); if (r.status === 'ok') b1 = r; } inp = calibInput(inp, assemble(inp1, null, b1, { version: VERSION, lite: true, now: new Date(NOW), auto: a1 })); }
+  if (inp.strength_by === '你的经历') { const b2 = one(inp.strength); if (b2.status === 'ok') bz = b2; }   // 同 browser/entry.js（rc.16）：校正定到扶抑某一边，带定案再排一次
   const fromAns = strengthOfAnswers(inp, bz);   // 同 browser/entry.js：核一核的回答里身强身弱定了，带着定案再排一次
   if (fromAns) { inp = { ...inp, strength: fromAns, strength_by: '核核你' }; const b2 = one(fromAns); if (b2.status === 'ok') bz = b2; }
   const auto = autoSideOf(inp, bz, N);   // 同 browser/entry.js：没核过、结论跟引擎档位不同，带结论再排一次
@@ -50,7 +53,7 @@ for (const c of out.filter((c) => c.out.method.bazi?.strength?.vote?.feel && !c.
 for (const c of out.filter((c) => c.out.method.bazi?.check?.enough && !c.input.strength).slice(0, 2)) {
   out.push(build({ ...c.input, answers: c.out.method.bazi.check.first_ask.map((x) => ({ year: x.year, pick: x.order[0] })) }));
 }
-// 身强身弱校正（10-14 起进回归）：按盘面自己的喜忌挑年份——一张照原判方向答（顺盘定案），一张往反方向答（逆盘翻过来、明说跟原判相反）。
+// 身强身弱校正（10-14 起进回归）：按盘面自己的喜忌挑年份——一张照原判方向答（顺盘定案），一张往反方向答（rc.16 起翻盘要领先 3 分，四件不一定翻，翻不过就先按盘面看）。
 // 新算法（流年定方向、大运定分量、性格题每边封顶 2、门槛、翻盘明说）浏览器里也要逐字一致
 {
   const { leanOf, TRAITS } = require(path.join(API, 'src', 'calib.js'));
@@ -63,6 +66,10 @@ for (const c of out.filter((c) => c.out.method.bazi?.check?.enough && !c.input.s
     const base = c.out.method.bazi.strength.vote.verdict.side, sd = k === 0 ? base : (base === '强' ? '弱' : '强');
     out.push(build({ ...c.input, calib: { traits: pickTraits(sd), events: eventsFor(c, sd) } }));
   }
+  // rc.16（10-30 起）：强弱定不了的盘拿几套喜用逐套对经历——一张只说一段时间＋一个转折年（定到哪一套都行，要逐字一致），一张只答性格题（没定，keep：先按盘面看）
+  const open = out.filter((c) => { const vd = c.out.method.bazi?.strength?.vote?.verdict; return c.out.method.bazi?.calib?.ask && !c.input.strength && !c.input.answers && !c.input.calib && vd && vd.side === '待定'; });
+  if (open[0]) out.push(build({ ...open[0].input, calib: { traits: Array(8).fill(null), periods: [{ from: 2016, to: 2019, good: false }], turns: [{ year: 2020, up: true }] } }));
+  if (open[1]) out.push(build({ ...open[1].input, calib: { traits: pickTraits('弱') } }));
 }
 fs.writeFileSync(path.join(ROOT, 'test', 'fixtures', 'expected.json'), JSON.stringify({ now: NOW, version: VERSION, cases: out }));
 console.log('fixtures', out.length, 'bazi ok', out.filter((c) => c.out.bazi.status === 'ok').length, 'past_candidates', out.map((c) => (c.out.method.timing?.past_candidates || []).length).join(','));
