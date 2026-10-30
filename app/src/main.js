@@ -395,7 +395,7 @@ function verifyTab() {
       r.solar ? h('p', { text: '八字按出生地的真太阳时排时柱：钟表时间按经度和当天的均时差校正。星盘按钟表时间排，1986–1991 年的夏令时已经扣掉。' }) : null,
       h('p', { text: '离交界越近，出生时间差几分钟就越可能改掉结论；所以玄玑先说清楚这张盘能用到哪一步。' }),
       RECT_DONE() ? h('p', { text: '时辰是你用经历定下来的。只定到时辰，不报几点几分；上升和宫位要精确到分钟，定时辰管不到。' }) : null)));
-  if (st) out.push(h('div', { class: 'gap' }), ...h2('身强身弱', st.calib ? `按你答的 ${st.calib.used.traits} 道题${st.calib.used.events ? `和说的 ${st.calib.used.events} 件大事` : ''}，定在身${st.side}。` : st.mine ? (st.hold ? `结论先按你上次核定的身${st.side}。` : `你核的流年里，选的都是身${st.side}的人才会遇到的样子。`) : '三种判法各投一票，只给起点；做个身强身弱校正才算定。西盘不进身强身弱。'),
+  if (st) out.push(h('div', { class: 'gap' }), ...h2('身强身弱', st.calib ? `按你${calUsed(st.calib.used)}，定在${st.side ? `身${st.side}` : `${st.calib.type}这一套`}。` : st.mine ? (st.hold ? `结论先按你上次核定的身${st.side}。` : `你核的流年里，选的都是身${st.side}的人才会遇到的样子。`) : '三种判法各投一票，只给起点；做个身强身弱校正才算定。西盘不进身强身弱。'),
     strengthCard(st),
     acc('为什么不是数五行？', '月令、通根、得势和喜忌', () => h('div', { class: 'why' },
       h('p', { text: '身强身弱看的是日主有没有得到支撑，不是哪种五行个数多。三路判法各看一个侧面：' }),
@@ -406,6 +406,9 @@ function verifyTab() {
   out.push(h('div', { class: 'gap' }), ...nodesBlock());
   return col(...out);
 }
+// 校正用了哪几样经历（rc.16 起多了一段时间、转折年）
+const calUsed = (u) => { const said = [u.events ? `${u.events} 件大事` : '', u.periods ? `${u.periods} 段时间` : '', u.turns ? `${u.turns} 个转折年` : ''].filter(Boolean);
+  return [u.traits ? `答的 ${u.traits} 道题` : '', said.length ? `说的 ${said.join('、')}` : ''].filter(Boolean).join('和') || '说的经历'; };
 // ── 身强身弱卡：三种判法＋身强身弱校正（10-10 起 8 道题＋大事；硬分歧主动请你校正；其余结论照给，有疑问再校正；定下来以后显示你亲手定的）──
 const FEEL_LINE = '这是你这张盘的结构，不会随年份变。';
 const TURNED = '你后来核的回答攒够了证据，结论修正了，之前的时间线按新结论重排。';   // 方向翻了必须明示（10-05 定），不静默换结论
@@ -418,11 +421,11 @@ function strengthCard(st) {
   if (st.calib) {   // 身强身弱校正定下来的（10-10 起）：结果卡照网站四格
     return h('div', { class: 'card' },
       h('div', { class: 'row' }, h('div', {}, h('div', { class: 'lb', text: '玄玑结论 · 你亲手定的' }), h('div', { class: 'type', text: st.calib.type })), img('mark', 'fe-mark')),
-      rows(voteRows.concat([['你的校正', `身${st.side}（定案）`]])),
+      rows(voteRows.concat([['你的校正', `${st.side ? `身${st.side}` : st.calib.type}（${st.calib.close ? '更接近' : '定案'}）`]])),
       st.calib.flip ? h('p', { class: 'cal-flip', text: st.calib.flip }) : null,
-      h('div', { class: 'cal-g4' }, st.calib.cards.map((c) => h('div', {}, h('b', { text: c.title }), h('p', { text: c.text })))),
+      st.calib.cards ? h('div', { class: 'cal-g4' }, st.calib.cards.map((c) => h('div', {}, h('b', { text: c.title }), h('p', { text: c.text })))) : null,
       st.flip ? h('div', { class: 'kv fe-chg' }, h('div', { class: 'r' }, h('span', { text: '喜用' }), h('b', {}, h('s', { text: st.flip.favorable.join('') }), st.favorable.join(''))), h('div', { class: 'r' }, h('span', { text: '忌' }), h('b', {}, h('s', { text: st.flip.unfavorable.join('') }), st.unfavorable.join('')))) : null,
-      h('p', { class: 'fe-line', text: st.calib.say }), again('重新校正 ›'));
+      h('p', { class: 'fe-line', text: calFine(st.calib) }), again('重新校正 ›'));
   }
   if (st.mine) {
     const holdNote = st.hold === '加问' ? `这次的回答跟上次有出入，再看一年就能定；结论先按上次定的身${st.side}。` : st.hold === '挂起' ? `这次的回答跟上次有出入，两种读法拉不开；结论先按上次定的身${st.side}，可以把盘和回答交给创始人人工复核。` : null;
@@ -439,10 +442,10 @@ function strengthCard(st) {
       h('p', { class: 'fe-line', text: FEEL_LINE }), CAN_CAL() ? again('换成新的校正：8 道小题 ›') : null);
   }
   const fs = st.fs, card = h('div', { class: 'card' }, h('div', { class: 'row' }, h('div', {}, h('div', { class: 'lb', text: '玄玑结论' }), h('div', { class: 'type', text: st.verdict })), h('span', { class: 'badge ' + (st.kind ? 'warn' : 'agree'), text: st.agree })), rows(voteRows));
-  if (S.calNone && CAN_CAL()) card.append(h('div', { class: 'timenote', text: '你上次校正的答案，两边差不太多，先保持原来的看法；多填几件大事，再看一次。' }), again('再校正一次 ›'));
+  if (S.calNone && CAN_CAL()) card.append(h('div', { class: 'timenote', text: '你上次校正说的经历还不够看出方向，先按盘面看。再说几件这些年的大事，或者哪几年特别难、特别顺，就能定下来。' }), again('再校正一次 ›'));
   else if (CAN_CAL() && st.need && S.feelSkip) card.append(h('div', { class: 'timenote', text: '你选了先不校正，身强身弱先不下结论。' }), again('想校正的时候，做 8 道小题 ›'));
   else if (CAN_CAL() && st.need) card.append(h('div', { class: 'fe-cal' },
-    h('p', { text: `${st.kind === '孤票' ? `三种判法里只有一种说出了强弱（${st.votes.map((v) => v.level).join('、')}），单凭它不下结论` : `三种判法在你这里分歧：${st.votes.map((v) => v.level).join('、')}`}。做个身强身弱校正：8 道日常小题，再说几件这些年的大事，两三分钟。` }),
+    h('p', { text: `${st.kind === '孤票' ? `三种判法里只有一种说出了强弱（${st.votes.map((v) => v.level).join('、')}），单凭它不下结论` : `三种判法在你这里分歧：${st.votes.map((v) => v.level).join('、')}`}。做个身强身弱校正：8 道日常小题，再说几件这些年的大事，或者哪几年特别难、特别顺，两三分钟。` }),
     h('button', { class: 'cta dark', type: 'button', text: '做个身强身弱校正', on: { click: startCal } }),
     h('button', { class: 'fe-skip', type: 'button', text: '不用，先照现在的看', on: { click: () => { S.feelSkip = true; store.setFeel(S.id, null, true); show('result'); } } })));
   else {
@@ -454,7 +457,8 @@ function strengthCard(st) {
 // ── 身强身弱校正（10-10 起，照网站校正页：8 道日常小题＋这些年的大事，跟 Skill、Kimi 同一套；题和算分都在引擎里，回答只在这台手机上）──
 function startCal() {
   const last = S.calib || S.calTry || null;   // 上次选的先勾好（同网站）
-  S.cal = { home: depth, traits: last && Array.isArray(last.traits) ? last.traits.slice() : Array(8).fill(null) };
+  S.cal = { home: depth, traits: last && Array.isArray(last.traits) ? last.traits.slice() : Array(8).fill(null),
+    pd: last && Array.isArray(last.periods) ? last.periods.map((x) => ({ ...x })) : [], tn: last && Array.isArray(last.turns) ? last.turns.map((x) => ({ ...x })) : [] };
   if (!S.ev.length) S.ev.push({});
   go('calib');
 }
@@ -488,6 +492,21 @@ function evEditor(list, onChange) {
     ...(list.length < 12 ? [h('button', { class: 'rt-add', type: 'button', text: '＋ 再加一件', on: { click: () => { list.push({}); paint(); onChange(); } } })] : []));
   paint(); return box;
 }
+// 一段时间（哪几年整体很难／很顺）、转折年（哪一年开始变好／变差）：rc.16 起，同网站校正页；只给身强身弱校正用，存在这台手机上
+function spanEditor(list, pd) {
+  const birthY = +S.input.date.slice(0, 4), box = col();
+  const yrs = []; for (let y = S.nowY; y >= birthY + 12; y--) yrs.push([y, `${y} 年`]);
+  const paint = () => box.replaceChildren(...list.map((e, i) => h('div', { class: 'pe' },
+    h('div', { class: 'pe-h' }, h('b', { text: `${pd ? '一段时间' : '转折'} ${i + 1}` }), h('button', { class: 'pe-x', type: 'button', text: '×', 'aria-label': '删掉这一条', on: { click: () => { list.splice(i, 1); paint(); } } })),
+    pd ? h('div', { class: 'pe-2' }, h('div', {}, h('label', { class: 'lab', text: '从哪年' }), select(yrs, e.from, (v) => { e.from = +v; }, '选年份')), h('div', {}, h('label', { class: 'lab', text: '到哪年' }), select(yrs, e.to, (v) => { e.to = +v; }, '选年份')))
+      : [h('label', { class: 'lab', text: '哪一年' }), select(yrs, e.year, (v) => { e.year = +v; }, '选年份')],
+    h('label', { class: 'lab', text: pd ? '那几年整体' : '从那一年起' }), chips(pd ? [[true, '很顺'], [false, '很难']] : [[true, '开始变好'], [false, '开始变差']], pd ? e.good : e.up, (v) => { if (pd) e.good = v; else e.up = v; }, 'pe-gb'))),
+    ...(list.length < 6 ? [h('button', { class: 'rt-add', type: 'button', text: list.length ? (pd ? '＋ 再加一段' : '＋ 再加一个') : (pd ? '＋ 加一段' : '＋ 加一个'), on: { click: () => { list.push({}); paint(); } } })] : []));
+  paint(); return box;
+}
+// 超过 15 年只取后 15 年（同网站）
+const pdClean = (list) => list.filter((x) => x.from && x.to && typeof x.good === 'boolean').map((x) => { const a = Math.min(x.from, x.to), b = Math.max(x.from, x.to); return { from: Math.max(a, b - 15), to: b, good: x.good }; });
+const tnClean = (list) => list.filter((x) => x.year && typeof x.up === 'boolean').map((x) => ({ year: x.year, up: x.up }));
 const evClean = (list) => list.filter(evDone).map((e) => ({ year: e.year, domain: e.domain, ...(e.event ? { event: e.event } : {}), ...(typeof e.good === 'boolean' ? { good: e.good } : {}) }));
 function calibEv() {
   setBar({ pill: '‹ 改一下题' });
@@ -495,31 +514,45 @@ function calibEv() {
   const ed = evEditor(S.ev, () => store.setEvents(S.id, evClean(S.ev)));
   btn.addEventListener('click', () => {
     // 好坏说不上来的那件不交给校正（同 Skill、Kimi）；定时辰那边照样能用
-    S.calTry = { traits: S.cal.traits.slice(), events: evClean(S.ev).filter((e) => typeof e.good === 'boolean') };
+    const pd = pdClean(S.cal.pd), tn = tnClean(S.cal.tn);
+    S.calTry = { traits: S.cal.traits.slice(), events: evClean(S.ev).filter((e) => typeof e.good === 'boolean'), ...(pd.length ? { periods: pd } : {}), ...(tn.length ? { turns: tn } : {}) };
     go('calibRes');
   });
+  const qp = calAsk().periods, qt = calAsk().turns;
   return h('section', { class: 'v' }, h('div', { class: 'eyebrow', text: 'STRENGTH · 身强身弱' }), h('h2', { class: 'h1', text: '过去这些年' }),
-    h('p', { class: 'lead', text: `${q.q}${q.hint}` }), h('div', { class: 'card fields' }, ed), btn,
+    h('p', { class: 'lead', text: `${q.q}${q.hint}` }), h('div', { class: 'card fields' }, ed),
+    qp ? [h('p', { class: 'lead', text: `${qp.q}${qp.hint}` }), h('div', { class: 'card fields' }, spanEditor(S.cal.pd, true))] : null,
+    qt ? [h('p', { class: 'lead', text: `${qt.q}${qt.hint}` }), h('div', { class: 'card fields' }, spanEditor(S.cal.tn, false))] : null, btn,
     h('p', { class: 'privacy', text: '只记哪一年、哪类事、好事坏事，存在这台手机上，不上传' }));
 }
 function calibRes() {
   setBar({});
   const T = S.calTry, o = window.XJ.compute({ ...EFF(), calib: T }), r = o.method.bazi && o.method.bazi.calib && o.method.bazi.calib.result;
   const home = S.cal ? S.cal.home : 1;
-  if (!r || r.status !== '定案') {
-    return h('section', { class: 'v' }, h('div', { class: 'eyebrow', text: 'STRENGTH · 身强身弱' }), h('div', { class: 'card cal-res none' }, h('h2', { class: 'h2', text: '这些答案，两边差不太多' }), h('p', { class: 'lead', text: r && r.say ? r.say.replace(/^回答两边差不多，/, '') : '先保持原来的看法。回去多填几件大事，再看一次。' })),   // 10-14 起照引擎给的话（命理组：还是按原来的偏X看）
-      h('div', { class: 'cal-nav' }, h('button', { class: 'fe-skip', type: 'button', text: '回去补经历', on: { click: goBack } }), h('button', { class: 'cta dark', type: 'button', text: '知道了', on: { click: () => { S.calNone = true; S.tab = 'verify'; unwind(home); } } })));
+  const keepOld = () => { if (S.calib) { S.calib = T; store.setCalib(S.id, T); settle(); } };   // 以前校正过、这次没定：回到盘面那一套，把这次的回答存上（同网站），不然还挂着上次的结论
+  if (!r || !r.type) {
+    return h('section', { class: 'v' }, h('div', { class: 'eyebrow', text: 'STRENGTH · 身强身弱' }), h('div', { class: 'card cal-res none' }, h('h2', { class: 'h2', text: '这会儿没算出来' }), h('p', { class: 'lead', text: '回去再点一次「看结果」试试。' })),
+      h('div', { class: 'cal-nav' }, h('button', { class: 'fe-skip', type: 'button', text: '回去补经历', on: { click: goBack } }), h('button', { class: 'cta dark', type: 'button', text: '知道了', on: { click: () => { S.tab = 'verify'; unwind(home); } } })));
   }
-  const fav = o.method.bazi.useful ? o.method.bazi.useful.favorable : [];
+  const fav = o.method.bazi.useful ? o.method.bazi.useful.favorable : r.favorable || [];
+  // rc.16：没定也给答案（keep）——先按盘面看那一套，下面一句说为什么、再说些什么能定（同网站校正页）
+  if (r.status !== '定案') {
+    return h('section', { class: 'v' }, h('div', { class: 'eyebrow', text: 'STRENGTH · 身强身弱' }),
+      h('div', { class: 'card cal-res' }, h('div', { class: 'cal-rh' }, h('span', { text: '先按盘面看：' }), h('button', { class: 'fe-again', type: 'button', text: '重新校正', on: { click: () => { S.cal.traits = Array(8).fill(null); S.cal.pd = []; S.cal.tn = []; unwind(home + 1); } } })),
+        h('div', { class: 'cal-type', text: `【${r.type}】` }), fav.length ? rows([['喜用', fav.join('、')]]) : null, h('p', { class: 'fe-line', text: r.say })),
+      h('div', { class: 'cal-nav' }, h('button', { class: 'fe-skip', type: 'button', text: '回去补经历', on: { click: goBack } }), h('button', { class: 'cta dark', type: 'button', text: '知道了', on: { click: () => { keepOld(); S.calNone = true; S.tab = 'verify'; unwind(home); } } })));
+  }
   return h('section', { class: 'v' }, h('div', { class: 'eyebrow', text: 'STRENGTH · 身强身弱' }),
-    h('div', { class: 'card cal-res' }, h('div', { class: 'cal-rh' }, h('span', { text: '你的校正结果为：' }), h('button', { class: 'fe-again', type: 'button', text: '重新校正', on: { click: () => { S.cal.traits = Array(8).fill(null); unwind(home + 1); } } })),
+    h('div', { class: 'card cal-res' }, h('div', { class: 'cal-rh' }, h('span', { text: '你的校正结果为：' }), h('button', { class: 'fe-again', type: 'button', text: '重新校正', on: { click: () => { S.cal.traits = Array(8).fill(null); S.cal.pd = []; S.cal.tn = []; unwind(home + 1); } } })),
       h('div', { class: 'cal-type', text: `【${r.type}】` }), r.flip ? h('p', { class: 'cal-flip', text: r.flip }) : null,   // 定到盘面原判的反面要明说（10-13 命理组，同网站）
-      h('div', { class: 'cal-g4' }, r.cards.map((c) => h('div', {}, h('b', { text: c.title }), h('p', { text: c.text })))),
+      r.cards ? h('div', { class: 'cal-g4' }, r.cards.map((c) => h('div', {}, h('b', { text: c.title }), h('p', { text: c.text })))) : null,   // 定到调候、格局没有四格
       fav.length ? rows([['喜用', fav.join('、')]]) : null,
-      h('p', { class: 'fe-line', text: r.say })),
+      h('p', { class: 'fe-line', text: calFine(r) })),
     h('div', { class: 'cal-nav' }, h('button', { class: 'fe-skip', type: 'button', text: '不修改', on: { click: () => unwind(home) } }),
-      h('button', { class: 'cta dark', type: 'button', text: `确定修改为${r.type}`, on: { click: () => { S.calib = T; S.calNone = false; store.setCalib(S.id, T); settle(); S.tab = 'verify'; unwind(home); } } })));
+      h('button', { class: 'cta dark', type: 'button', text: r.side ? `确定修改为${r.type}` : '确定按这个来', on: { click: () => { S.calib = T; S.calNone = false; store.setCalib(S.id, T); settle(); S.tab = 'verify'; unwind(home); } } })));
 }
+// 结果下面那句（同网站）：领先不多（更接近）照引擎的话；定到扶抑派说身强身弱那句，定到调候、格局说按这一套看
+const calFine = (r) => (r.close ? r.say : r.side ? '身强身弱是对整张盘力量的概括，具体还要结合整体结构和现实情况。' : '喜用和大运流年都按这一套来看，具体还要结合整体结构和现实情况。');
 
 function nodesBlock() {
   const nodes = S.nodes;
