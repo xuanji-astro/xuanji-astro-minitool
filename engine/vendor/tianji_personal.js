@@ -92,6 +92,24 @@ function cnDstAdjust(y,mo,d,h){
   if(cur===en) return (h!==undefined&&h<2)?1:0;
   return 0;
 }
+/* 11-02 境外／港澳台：档案里 zone＝出生地 IANA 时区名，zll＝定这个时区时的经纬度（"纬,经" 四位小数）。
+   经纬度对得上才认 zone（出生地被别的页面改过＝不算数，回北京口径）；认了就按出生那一刻从浏览器时区库算时差（含当地夏令时），不再扣中国 1986–91 夏令时。
+   没 zone 的（国内、老档案）照旧：tz 按北京口径，夏令时按 CN_DST 扣。照见 index.html、星盘 dk/v2/engine/natal.js、mbti_full.html、tianji_personal.js 四份这一段逐字一样。 */
+function zoneOf(inp){
+  if(!inp||!inp.zone||!inp.zll||inp.lat==null||inp.lon==null) return "";
+  const a=String(inp.zll).split(",");
+  return (Math.abs(+a[0]-(+inp.lat))<5e-4&&Math.abs(+a[1]-(+inp.lon))<5e-4)?String(inp.zone):"";
+}
+function zoneTz(zone,y,mo,d,h,mi){
+  const OLD={"Europe/Kyiv":"Europe/Kiev","Pacific/Kanton":"Pacific/Enderbury","America/Nuuk":"America/Godthab","Asia/Yangon":"Asia/Rangoon","Asia/Kolkata":"Asia/Calcutta","Asia/Ho_Chi_Minh":"Asia/Saigon","Asia/Kathmandu":"Asia/Katmandu","Atlantic/Faroe":"Atlantic/Faeroe","Pacific/Chuuk":"Pacific/Truk","Pacific/Pohnpei":"Pacific/Ponape","Asia/Thimphu":"Asia/Thimbu","Asia/Ulaanbaatar":"Asia/Ulan_Bator","Asia/Dhaka":"Asia/Dacca","Asia/Macau":"Asia/Macao","America/Atikokan":"America/Coral_Harbour"};   /* 老手机时区库认不出新名字就换老名字 */
+  try{
+    const fo={timeZone:zone,hourCycle:"h23",year:"numeric",month:"numeric",day:"numeric",hour:"numeric",minute:"numeric"}; let f;
+    try{ f=new Intl.DateTimeFormat("en-US",fo); }catch(e){ if(!OLD[zone]) throw e; fo.timeZone=OLD[zone]; f=new Intl.DateTimeFormat("en-US",fo); }
+    const off=t=>{ const p={}; f.formatToParts(new Date(t)).forEach(x=>{ p[x.type]=x.value; }); return (Date.UTC(+p.year,+p.month-1,+p.day,+p.hour%24,+p.minute)-t)/6e4; };
+    const g=Date.UTC(y,mo-1,d,(h==null?12:h),mi||0); let o=off(g); o=off(g-o*6e4);
+    return (isFinite(o)&&Math.abs(o)<=14*60)?o/60:null;
+  }catch(_){ return null; }
+}
 
 // —— Placidus 宫位(🔴2026-07-14修:与主站index.html同源同款——发现土星宫位对不上,
 //    旧版整宫制与主站Placidus两个口径=照见说一套天机说一套,当众打脸。宫位必须一个口径。) ——
@@ -153,8 +171,9 @@ function houseOfC(L,cusps){
 
 // —— 轻量本命盘:行星黄经+Placidus宫头(与主站同源) ——
 function computeNatalLite(meta){
-  const dstH=cnDstAdjust(meta.y,meta.mo,meta.d,meta.h);
-  const utc=toUTC(meta.y,meta.mo,meta.d,meta.h-dstH,meta.mi||0,meta.tz===undefined?8:meta.tz);
+  const zn=zoneOf(meta), zt=zn?zoneTz(zn,meta.y,meta.mo,meta.d,meta.h,meta.mi||0):null;   /* 11-02 境外／港澳台：按出生那一刻从时区库算时差、不扣中国夏令时 */
+  const dstH=zn?0:cnDstAdjust(meta.y,meta.mo,meta.d,meta.h);
+  const utc=toUTC(meta.y,meta.mo,meta.d,meta.h-dstH,meta.mi||0,zt!=null?zt:(meta.tz===undefined?8:meta.tz));
   const planets=BODIES.map(([n,b])=>{
     const L=lon(b,utc),si=Math.floor(((L%360)+360)%360/30);
     return {n,sign:SIGNS[si],signIdx:si,deg:Math.floor(L-si*30),rx:isRx(b,utc),L};

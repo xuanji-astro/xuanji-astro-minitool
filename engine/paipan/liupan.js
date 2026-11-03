@@ -112,13 +112,21 @@ export function qiyun(raw, birth) {
   return { date: `${t.year}-${pad(t.month)}-${pad(t.day)}`, age };
 }
 
-// 流月节气表：每年十二个节的月.日＋月干支（立春起到次年小寒）。跟出生信息无关，按年缓存（进程内）
+// 流月节气表：每年十二个节的月.日＋月干支（立春起到次年小寒）。按年缓存（进程内）。
+// tz（境外出生，v2_absolute）：交节那一刻换成出生地当地日子（北京时间钟面减八小时＝世界时，再按当地时区换），按 时区＋年 另缓存；不给＝北京时间日子，跟原来一样
 const MONTHS_BY_YEAR = new Map();
-export function monthTable(fromYear, count) {
+const localDate = (start, tz) => {
+  const [d, hm = '00:00:00'] = start.split(' '); const [y, mo, dd] = d.split('-').map(Number); const [h, mi, se = 0] = hm.split(':').map(Number);
+  const u = Date.UTC(y, mo - 1, dd, h, mi, se) - 8 * 3600e3;
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: tz, month: 'numeric', day: 'numeric' }).formatToParts(new Date(u)).map((x) => [x.type, x.value]));
+  return `${Number(p.month)}.${Number(p.day)}`;
+};
+export function monthTable(fromYear, count, tz = null) {
   const out = {};
   for (let y = Math.max(fromYear, CAL_MIN); y < Math.min(fromYear + count, CAL_MAX + 1); y++) {   // 引擎节气表只覆盖 1900–2100
-    if (!MONTHS_BY_YEAR.has(y)) { const ms = liuyue(y); MONTHS_BY_YEAR.set(y, { d: ms.map((m) => m.date), gz: ms.map((m) => m.ganZhi).join('') }); }
-    out[y] = MONTHS_BY_YEAR.get(y);
+    const k = tz ? tz + '|' + y : y;
+    if (!MONTHS_BY_YEAR.has(k)) { const ms = liuyue(y); MONTHS_BY_YEAR.set(k, { d: ms.map((m) => (tz ? localDate(m.start, tz) : m.date)), gz: ms.map((m) => m.ganZhi).join('') }); }
+    out[y] = MONTHS_BY_YEAR.get(k);
   }
   return out;
 }

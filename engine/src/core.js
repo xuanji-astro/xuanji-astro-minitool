@@ -11,12 +11,44 @@ const W = require('./words.js');
 const { pickQuotes } = require('./quotes.js');
 const { boundary } = require('./boundary.js');
 const { timing, baziLights } = require('./timing.js');
-const { locate } = require('./geo.js');
+const { locateAny } = require('./geo.js');
 
 const TIME_SOURCES = ['birth_certificate', 'family_clear', 'family_rough', 'unknown'];
 const TIME_PRECISIONS = ['minute', 'within_15min', 'within_1h', 'unknown'];
 
 class InputError extends Error { constructor(code, msg) { super(msg); this.code = code; } }
+
+/* 出生地（1102jw，11-02）：{ lat, lon, name, zone }。zone＝出生地 IANA 时区名；空串＝中国大陆，照老口径东八、1986–1991 夏令时按大陆扣。
+   ① 调用方带了 zone＋ll（网站档案里存的）就照用；② 国内城市照旧查表，港澳台给各自时区；③ 境外查七万城表，时区来自核过的表，城在本国时区交界上＝报错不猜。 */
+const OLD_ZONE = { 'Europe/Kyiv': 'Europe/Kiev', 'Pacific/Kanton': 'Pacific/Enderbury', 'America/Nuuk': 'America/Godthab', 'Asia/Yangon': 'Asia/Rangoon', 'Asia/Kolkata': 'Asia/Calcutta', 'Asia/Ho_Chi_Minh': 'Asia/Saigon', 'Asia/Kathmandu': 'Asia/Katmandu', 'Atlantic/Faroe': 'Atlantic/Faeroe', 'Pacific/Chuuk': 'Pacific/Truk', 'Pacific/Pohnpei': 'Pacific/Ponape', 'Asia/Thimphu': 'Asia/Thimbu', 'Asia/Ulaanbaatar': 'Asia/Ulan_Bator', 'Asia/Dhaka': 'Asia/Dacca', 'Asia/Macau': 'Asia/Macao', 'America/Atikokan': 'America/Coral_Harbour' };
+const zoneUsable = (z) => { try { new Intl.DateTimeFormat('en-US', { timeZone: z }); return z; } catch (_) { return OLD_ZONE[z] && zoneUsable(OLD_ZONE[z]) ? OLD_ZONE[z] : ''; } };
+function placeOf(b) {
+  if (b.zone != null || b.ll != null) {
+    const z = String(b.zone ?? ''), m = String(b.ll ?? '').match(/^(-?\d{1,2}\.\d{1,6}),(-?\d{1,3}\.\d{1,6})$/);
+    if (z.length > 40 || !/^[A-Za-z]+(\/[A-Za-z0-9_+-]+){1,2}$/.test(z) || !zoneUsable(z)) throw new InputError('ZONE_INVALID', '出生地时区名认不出来');
+    if (!m || Math.abs(+m[1]) > 90 || Math.abs(+m[2]) > 180) throw new InputError('PLACE_INVALID', '出生地经纬度要 "纬度,经度"');
+    return { lat: +m[1], lon: +m[2], name: String(b.city || '').trim().slice(0, 60), zone: zoneUsable(z) };
+  }
+  const p = locateAny(b.city);
+  if (!p) throw new InputError('LOCATION_NOT_FOUND', '找不到这个城市（国内写省市区；境外写「城市, 州或省, 国家」，中文英文都行）');
+  if (p.world && !p.zone) throw new InputError('LOCATION_ZONE_UNCERTAIN', `${p.name}在当地两个时区的交界上，时差拿不准；换一座附近的城市`);
+  return { lat: p.lat, lon: p.lon, name: p.name, ...(p.zone ? { zone: zoneUsable(p.zone) || p.zone } : {}) };   // 国内大陆不带 zone 这一项，输出跟以前一字不差
+}
+// 星盘引擎的入参：带时区名的（境外、港澳台）引擎按时区算时差、不扣大陆夏令时；zll 绑这次给的经纬度（换到现居地排也一样认）
+const zll = (lat, lon) => (+lat).toFixed(4) + ',' + (+lon).toFixed(4);
+function natalArgs(inp, over = {}) {
+  const lat = over.lat ?? inp.place.lat, lon = over.lon ?? inp.place.lon;
+  return { y: inp.y, mo: inp.mo, d: inp.d, h: over.h ?? inp.h, mi: over.mi ?? inp.mi, tz: 8, lat, lon, sex: inp.gender === 'female' ? '女' : '男', ...(inp.place.zone ? { zone: inp.place.zone, zll: zll(lat, lon) } : {}) };
+}
+// 出生那一刻的时差（小时）：带时区名的按时区库算（含当地夏令时）；国内照旧报 8
+function tzOfInp(inp) {
+  if (!inp.place.zone || inp.h == null) return inp.place.zone ? null : 8;
+  try {
+    const f = new Intl.DateTimeFormat('en-US', { timeZone: inp.place.zone, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' });
+    const off = (t) => { const p = {}; f.formatToParts(new Date(t)).forEach((x) => { p[x.type] = x.value; }); return (Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute) - t) / 6e4; };
+    const g = Date.UTC(inp.y, inp.mo - 1, inp.d, inp.h, inp.mi || 0); let o = off(g); o = off(g - o * 6e4); return o / 60;
+  } catch (_) { return null; }
+}
 
 function parseInput(b) {
   if (!b || typeof b !== 'object' || Array.isArray(b)) throw new InputError('INPUT_INVALID', '请求体要 JSON 对象');
@@ -31,8 +63,7 @@ function parseInput(b) {
     if (!t || +t[1] > 23 || +t[2] > 59) throw new InputError('TIME_INVALID', '出生时间要 HH:mm，时辰不详传 null');
     [h, mi] = [+t[1], +t[2]];
   }
-  const place = locate(b.city);
-  if (!place) throw new InputError('LOCATION_NOT_FOUND', '找不到这个城市（目前只支持中国省市区）');
+  const place = placeOf(b);
   if (!['male', 'female'].includes(b.gender)) throw new InputError('GENDER_REQUIRED', '性别要 male 或 female');
   // 身强身弱的定案：用户拿经历核过、定下来的那一边（强／弱）。喜忌、时间线、格局小结都跟它走；不传＝按几种判法的结论
   if (b.strength != null && b.strength !== '强' && b.strength !== '弱') throw new InputError('STRENGTH_INVALID', 'strength 只能是 强、弱 或不传');
@@ -43,6 +74,8 @@ function parseInput(b) {
   if (b.answers != null && (!Array.isArray(b.answers) || b.answers.length > 12 || !b.answers.every(ok))) throw new InputError('ANSWERS_INVALID', 'answers 是 [{ year, pick }]，pick 只能是 弱、强、都沾、记不清，最多 12 条');
   // 身强身弱校正（照网站校正页的问法，10-10，见 calib.js）：8 道性格题选的哪一项＋自己说的几件大事；接口算分，定了就照网站那样转成回答
   const calib = b.calib == null ? null : calibParse(b.calib);
+  // 历法口径（命理组 11-02 裁定）：Skill、小工具每次都是新排的盘＝v2_absolute（年柱月柱、起运按出生那一刻比节气）；网站拿老档案来问（复制给 AI 等）会明确传 v1_legacy，照传
+  if (b.calendarRule != null && !['v1_legacy', 'v2_absolute'].includes(b.calendarRule)) throw new InputError('CALENDAR_RULE_INVALID', 'calendarRule 只能是 v1_legacy、v2_absolute 或不传');
   if (b.calib != null && !calib) throw new InputError('CALIB_INVALID', 'calib 是 { traits: [8 个 A–F 或 null，F＝说不准], events: [{ domain, event, year, good }]（最多 30 条）, periods: [{ from, to, good }]（最多 6 段、每段不超过 15 年）, turns: [{ year, up }]（最多 6 个） }');
   return {
     date: b.date, y: +m[1], mo: +m[2], d: +m[3], h, mi, city: String(b.city).trim(), place, gender: b.gender,
@@ -52,6 +85,7 @@ function parseInput(b) {
     school: b.school == null ? null : b.school,
     answers: b.answers == null ? null : b.answers.map((a) => ({ year: a.year, pick: a.pick })),
     calib,
+    calendarRule: b.calendarRule == null ? 'v2_absolute' : b.calendarRule,
   };
 }
 
@@ -109,7 +143,7 @@ function astroMbti(N) {
 }
 
 // 时辰不详：西盘没有上升和宫位，出厂底色依赖上升和宫位 ⇒ 都不出，只回八字（三柱）
-const natalOf = (inp) => inp.h === null ? null : natal({ y: inp.y, mo: inp.mo, d: inp.d, h: inp.h, mi: inp.mi, tz: 8, lat: inp.place.lat, lon: inp.place.lon, sex: inp.gender === 'female' ? '女' : '男' });
+const natalOf = (inp) => inp.h === null ? null : natal(natalArgs(inp));   // 11-02：出生地时区名一起给引擎
 
 // bz＝排盘服务 /v1/bazi 的回包加 status（服务端经 HTTP 拿，小工具本机调同一份 paipan()）；version 由调用方给（服务端按 vendor 文件算 SHA）
 // 定案（10-05 定）：身强身弱的定案是喜忌、时间线、格局小结的唯一输入。用户核过的（inp.strength）高于几种判法的结论。
@@ -193,7 +227,7 @@ function assemble(inp, N, bz0, { version, lite, now = new Date(), auto = null } 
   const bz = viewed || bz0;
   const timeKnown = inp.h !== null;
   const birth = { date: inp.date, time: timeKnown ? `${String(inp.h).padStart(2, '0')}:${String(inp.mi).padStart(2, '0')}` : null, city: inp.city,
-                  place: inp.place, tz: 8, sex: inp.gender, time_source: inp.time_source, time_precision: inp.time_precision };
+                  place: inp.place, tz: tzOfInp(inp), ...(inp.place.zone ? { zone: inp.place.zone } : {}), sex: inp.gender, time_source: inp.time_source, time_precision: inp.time_precision };
   const ch = N ? mbtiChart(N) : null;
   const eff = inp.strength || auto;   // 用户核过的定案优先，其次是没核过时几种判法的结论
   const ss = eff && bz && bz.status === 'ok' ? bz.bazi.strengthSide : null, applied = !!(ss && ss.applied && ss.engineUsefulGods);
@@ -272,4 +306,4 @@ function assemble(inp, N, bz0, { version, lite, now = new Date(), auto = null } 
   return out;
 }
 
-module.exports = { TIME_SOURCES, TIME_PRECISIONS, InputError, parseInput, chartDataOf, astroMbti, natalOf, autoSideOf, strengthOfAnswers, calibInput, assemble };
+module.exports = { TIME_SOURCES, TIME_PRECISIONS, InputError, parseInput, natalArgs, tzOfInp, chartDataOf, astroMbti, natalOf, autoSideOf, strengthOfAnswers, calibInput, assemble };

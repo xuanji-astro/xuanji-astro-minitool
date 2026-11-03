@@ -1,6 +1,6 @@
 // 盘面扩展（10-02 审定）：灵神星、爱神星、精神点、六颗恒星。全部只上盘面和点位表，
 // 不进计分、应期、身强，也不写进交接数据。没有出生时间时不出（宫位、上升都没有）。
-// 出生时刻用排盘核心自己的 toUTC／cnDstAdjust（含 1986–1991 中国夏令时），和行星是同一个瞬间。
+// 出生时刻用排盘核心自己的 toUTC／cnDstAdjust（含 1986–1991 中国夏令时；境外、港澳台按出生地时区 zoneTz），和行星是同一个瞬间。
 import { SIGNS } from './wheel.js';
 
 // 恒星：J2000.0 回归黄经取自网站「恒星星官表」（rebirth.html STARS）；岁差按 50.29″／年线性推到出生时刻；只标合相，容许度 1°
@@ -21,8 +21,10 @@ export function extras(out) {
   const d = out.western && out.western.data, b = out.birth;
   if (!d || !b.time || typeof window.toUTC !== 'function') return null;
   const [y, mo, dd] = b.date.split('-').map(Number), [hh, mi] = b.time.split(':').map(Number);
-  const dst = typeof window.cnDstAdjust === 'function' ? window.cnDstAdjust(y, mo, dd, hh) : 0;
-  const utc = window.toUTC(y, mo, dd, hh - dst, mi, b.tz || 8);
+  /* 境外／港澳台（1102jw）：带出生地时区名的按出生那一刻从时区库算时差、不扣大陆夏令时（跟排盘核心 computeNatal 同一个判法） */
+  const zt = b.zone && typeof window.zoneTz === 'function' ? window.zoneTz(b.zone, y, mo, dd, hh, mi) : null;
+  const dst = zt != null ? 0 : typeof window.cnDstAdjust === 'function' ? window.cnDstAdjust(y, mo, dd, hh) : 0;
+  const utc = window.toUTC(y, mo, dd, hh - dst, mi, zt != null ? zt : (b.tz || 8));
   const P = Object.fromEntries(d.planets.map((p) => [p.n, lonOf(p)]));
   const asc = d.angles.asc.L, mc = d.angles.mc.L;
   // 精神点：昼夜标志同福点（太阳在 7–12 宫＝昼盘）；昼盘 上升＋太阳－月亮，夜盘反过来

@@ -12,7 +12,7 @@ const hhmm = (inp) => (inp.h == null ? null : `${String(inp.h).padStart(2, '0')}
 // 同 profile.js bazi()：先用用户写的城市；排盘认不出时用我们解析出的全称再试一次。走一遍 JSON 往返，和服务端收到的回包一模一样。
 function baziLocal(inp) {
   const call = (city) => {
-    try { return { ok: true, body: JSON.parse(JSON.stringify(paipan({ date: inp.date, time: hhmm(inp), city, gender: inp.gender, ...(inp.strength ? { strength: inp.strength } : {}) }))) }; }
+    try { return { ok: true, body: JSON.parse(JSON.stringify(paipan({ date: inp.date, time: hhmm(inp), city, gender: inp.gender, ...(inp.strength ? { strength: inp.strength } : {}), calendarRule: inp.calendarRule || 'v2_absolute', ...(inp.place && inp.place.zone ? { zone: inp.place.zone, ll: (+inp.place.lat).toFixed(4) + ',' + (+inp.place.lon).toFixed(4) } : {}) })   /* 1102jw：境外／港澳台带出生地时区名和经纬度（同 profile.js）；历法口径同 profile.js（小工具每次新排＝v2_absolute：年柱月柱、起运按出生那一刻比节气） */)) }; }
     catch (e) { if (e instanceof PaipanInputError) return { ok: false, body: { error: { code: e.code, message: e.message } } }; throw e; }
   };
   let r = call(inp.city);

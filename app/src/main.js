@@ -205,13 +205,39 @@ function home() {
       list) : null);
 }
 
+// ── 境外出生（1102jw）：出生地第一格选「境外」→ 打城市名搜（中文英文都行）→ 选中的城市把经纬度和出生地时区名交给引擎 ──
+// 城市表 engine/world.js（GeoNames 人口三万以上、大陆以外 6600 座，时区按 OSM 边界核过；城在本国时区交界上的留空＝不给选），选了「境外」才加载
+const ABROAD = '境外';
+let worldP = null;
+const loadWorld = () => worldP || (worldP = new Promise((ok, fail) => {
+  if (window.XJ_WORLD) return ok(window.XJ_WORLD);
+  const el = document.createElement('script'); el.src = './engine/world.js';
+  el.addEventListener('load', () => (window.XJ_WORLD ? ok(window.XJ_WORLD) : fail(new Error('城市表没加载上'))));
+  el.addEventListener('error', () => { worldP = null; fail(new Error('城市表没加载上')); });
+  document.body.appendChild(el);
+}));
+const WORLD_TOP = ['东京', '首尔', '新加坡', '纽约', '洛杉矶', '伦敦', '温哥华', '多伦多', '悉尼', '墨尔本', '巴黎', '吉隆坡', '曼谷', '旧金山', '奥克兰', '香港', '台北'];
+const worldSub = (W, r) => { const c = W.country[r[2]] || r[2]; return r[2] === 'US' && r[3] && r[3].length <= 5 ? r[3] : c; };   // 美国注州（加州），别的注国家
+function worldSearch(W, q) {
+  q = String(q || '').trim().toLowerCase();
+  if (!q) return WORLD_TOP.map((n) => W.rows.find((x) => x[0] === n)).filter(Boolean);
+  const sc = (r) => { const z = r[0], e = r[1].toLowerCase(), ks = r[7] || [];
+    if (z === q || e === q) return 0; if (z.startsWith(q) || e.startsWith(q)) return 1; if (ks.some((k) => k === q || k.startsWith(q))) return 2;
+    if (z.includes(q) || e.includes(q) || ks.some((k) => k.includes(q))) return 3; return 9; };
+  return W.rows.map((r) => [sc(r), r]).filter((x) => x[0] < 9).sort((a, b) => a[0] - b[0]).slice(0, 8).map((x) => x[1]);   // 表按人口从大到小排，同分保持原序
+}
+const ll4 = (a) => (+a.lat).toFixed(4) + ',' + (+a.lon).toFixed(4);
+// 经纬度写法：北纬 N、南纬 S、东经 E、西经 W（国内永远是 N、E，跟以前一样；境外才会出 S、W）
+const latLon = (p, n, sep) => `${Math.abs(p.lat).toFixed(n)}°${p.lat < 0 ? 'S' : 'N'}${sep}${Math.abs(p.lon).toFixed(n)}°${p.lon < 0 ? 'W' : 'E'}`;
+
 // ── 出生信息 ──
 function form(prefill) {
-  const f = { y: 1995, mo: null, d: null, hh: null, mi: null, noTime: false, prov: null, city: null, dist: null, gender: null, src: null, pre: null, ...prefill };
+  const f = { y: 1995, mo: null, d: null, hh: null, mi: null, noTime: false, prov: null, city: null, dist: null, ab: null, abq: '', gender: null, src: null, pre: null, ...prefill };
   const years = []; for (let y = new Date().getFullYear(); y >= 1930; y--) years.push([y, `${y} 年`]);
   const dim = () => (f.mo ? new Date(f.y, f.mo, 0).getDate() : 31);
   const placeBox = h('div', { class: 'place' }), timeRow = h('div', { class: 'triple' }), srcBox = h('div', { class: 'col tight' }), dayBox = h('span', {});
-  const valid = () => f.y && f.mo && f.d && (f.noTime || (f.hh != null && f.mi != null)) && f.prov && f.city && f.gender;
+  const placeOk = () => (f.prov === ABROAD ? !!(f.ab && f.ab.zone) : !!(f.prov && f.city));
+  const valid = () => f.y && f.mo && f.d && (f.noTime || (f.hh != null && f.mi != null)) && placeOk() && f.gender;
   const refresh = () => setBar({ next: submit, label: '排盘', disabled: !valid() });
   const paintDays = () => { if (f.d > dim()) f.d = null; dayBox.replaceChildren(select(Array.from({ length: dim() }, (_, i) => [i + 1, `${i + 1} 日`]), f.d, (v) => { f.d = +v; refresh(); }, '日')); };
   const paintTime = () => {
@@ -230,16 +256,36 @@ function form(prefill) {
   const paintPlace = () => {
     const C = window.CITY_DATA;
     if (!C) { placeBox.replaceChildren(h('div', { class: 'faint small', text: '城市表加载中…' })); engineReady.then(paintPlace); return; }
-    const provs = Object.keys(C), cities = f.prov ? Object.keys(C[f.prov]) : [], dists = f.prov && f.city ? Object.keys(C[f.prov][f.city]) : [];
+    const provs = [ABROAD].concat(Object.keys(C)), pick = (v) => { f.prov = v; f.city = null; f.dist = null; f.ab = null; paintPlace(); refresh(); };
+    if (f.prov === ABROAD) return paintAbroad(select(provs, f.prov, pick, '省'));
+    placeBox.classList.remove('abroad');
+    const cities = f.prov ? Object.keys(C[f.prov]) : [], dists = f.prov && f.city ? Object.keys(C[f.prov][f.city]) : [];
     placeBox.replaceChildren(
-      select(provs, f.prov, (v) => { f.prov = v; f.city = null; f.dist = null; paintPlace(); refresh(); }, '省'),
+      select(provs, f.prov, pick, '省'),
       select(cities, f.city, (v) => { f.city = v; f.dist = null; paintPlace(); refresh(); }, '市'),
       select(dists, f.dist, (v) => { f.dist = v; }, '区县'));
   };
+  // 境外：省那格留着，右边换成搜索框＋候选；选中一座，下面一行写它是哪国哪州、按哪个时区算
+  function paintAbroad(provSel) {
+    placeBox.classList.add('abroad');
+    const q = h('input', { class: 'sel ab-q', type: 'text', placeholder: '打城市名，中文英文都行', autocomplete: 'off', spellcheck: 'false', value: f.abq || '' });
+    const list = h('div', { class: 'ab-list' }), note = h('div', { class: 'faint small ab-note' });
+    const paintNote = () => { note.textContent = !f.ab ? '人口三万以下的小地方，选附近的城市' : f.ab.zone ? `${f.ab.nm} · ${f.ab.sub}：按当地时区算，含当地夏令时` : `${f.ab.nm}在当地两个时区的交界上，时差拿不准，换一座附近的城市`; };
+    const paintList = (W) => {
+      const rows = worldSearch(W, f.abq);
+      list.replaceChildren(...(rows.length ? rows.map((r) => h('button', { type: 'button', class: 'chip' + (f.ab && f.ab.nm === r[0] && f.ab.lat === r[4] ? ' on' : ''), on: { click: () => { f.ab = { nm: r[0], sub: worldSub(W, r), lat: r[4], lon: r[5], zone: r[6] || '' }; paintList(W); paintNote(); refresh(); } } }, r[0], h('small', { text: ' ' + worldSub(W, r) })))
+        : [h('div', { class: 'faint small', text: '没找到，换个写法试试（国内的城市回第一格选省）' })]));
+    };
+    placeBox.replaceChildren(provSel, q, list, note); paintNote();
+    list.replaceChildren(h('div', { class: 'faint small', text: '城市表加载中…' }));
+    loadWorld().then((W) => { paintList(W); q.addEventListener('input', () => { f.abq = q.value; paintList(W); }); })
+      .catch(() => list.replaceChildren(h('div', { class: 'faint small', text: '城市表没加载上，回第一格重选一次「境外」' })));
+  }
   function submit() {
     if (!valid()) return;
-    const city = [f.prov, f.city !== f.prov ? f.city : '', f.dist || ''].join('');
-    run({ date: `${f.y}-${pad2(f.mo)}-${pad2(f.d)}`, time: f.noTime ? null : `${pad2(f.hh)}:${pad2(f.mi)}`, city, gender: f.gender, time_source: f.noTime ? 'unknown' : f.src || 'unknown', time_precision: f.noTime ? 'unknown' : f.pre || 'unknown' }, f);
+    const ab = f.prov === ABROAD ? f.ab : null;
+    const city = ab ? `${ab.nm}·${ab.sub}` : [f.prov, f.city !== f.prov ? f.city : '', f.dist || ''].join('');
+    run({ date: `${f.y}-${pad2(f.mo)}-${pad2(f.d)}`, time: f.noTime ? null : `${pad2(f.hh)}:${pad2(f.mi)}`, city, ...(ab ? { zone: ab.zone, ll: ll4(ab) } : {}), gender: f.gender, time_source: f.noTime ? 'unknown' : f.src || 'unknown', time_precision: f.noTime ? 'unknown' : f.pre || 'unknown' }, f);
   }
   paintDays(); paintTime(); paintSrc(); paintPlace(); refresh();
   return h('section', { class: 'v' },
@@ -341,7 +387,7 @@ function coverCard() {
     h('div', { class: 'cc-t1', text: t1 }), t2 ? h('div', { class: 'cc-t2', text: t2 }) : null,
     h('div', { class: 'cc-mid' }, h('div', { class: 'cc-caps' }, caps.map((x) => h('div', { text: x }))), emblem),
     h('div', { class: 'cc-cells' }, cells.map(([k, v]) => h('div', {}, h('span', { text: k }), h('b', { text: v })))),
-    h('div', { class: 'cc-foot' }, h('span', { class: 'mono', text: `${RECT_DONE() ? `${S.input.date} · ${HOUR()}（亲定）` : `${b.date}${b.time ? ' ' + b.time : ''}`} · ${r.place ? `${r.place.lat.toFixed(1)}°N ${r.place.lon.toFixed(1)}°E` : b.city}` }), h('b', { text: '执天玄玑' })));
+    h('div', { class: 'cc-foot' }, h('span', { class: 'mono', text: `${RECT_DONE() ? `${S.input.date} · ${HOUR()}（亲定）` : `${b.date}${b.time ? ' ' + b.time : ''}`} · ${r.place ? `${latLon(r.place, 1, ' ')}` : b.city}` }), h('b', { text: '执天玄玑' })));
 }
 function coverTab() {
   const o = S.out, sn = D.seen(o, S.nowY), p = o.method.persona;
@@ -392,7 +438,7 @@ function verifyTab() {
       rectEntry()),
     acc('查看依据', '真太阳时、时辰交界、上升换座、宫头', () => h('div', { class: 'why' },
       r.risks.filter((x) => x.why).map((x) => h('p', {}, h('b', { text: x.text }), h('br'), x.why)),
-      r.solar ? h('p', { text: '八字按出生地的真太阳时排时柱：钟表时间按经度和当天的均时差校正。星盘按钟表时间排，1986–1991 年的夏令时已经扣掉。' }) : null,
+      r.solar ? h('p', { text: b.zone ? '八字按出生地的真太阳时排时柱：钟表时间按出生地时区（含当地夏令时）换算，再按经度和当天的均时差校正；年柱、月柱看出生那一刻过没过节气（节气交接是全世界同一刻，不按当地钟面比）。星盘按出生地时区的钟表时间排。' : '八字按出生地的真太阳时排时柱：钟表时间按经度和当天的均时差校正；年柱、月柱看出生那一刻过没过节气。星盘按钟表时间排，1986–1991 年的夏令时已经扣掉。' }) : null,
       h('p', { text: '离交界越近，出生时间差几分钟就越可能改掉结论；所以玄玑先说清楚这张盘能用到哪一步。' }),
       RECT_DONE() ? h('p', { text: '时辰是你用经历定下来的。只定到时辰，不报几点几分；上升和宫位要精确到分钟，定时辰管不到。' }) : null)));
   if (st) out.push(h('div', { class: 'gap' }), ...h2('身强身弱', st.calib ? `按你${calUsed(st.calib.used)}，定在${st.side ? `身${st.side}` : `${st.calib.type}这一套`}。` : st.mine ? (st.hold ? `结论先按你上次核定的身${st.side}。` : `你核的流年里，选的都是身${st.side}的人才会遇到的样子。`) : '三种判法各投一票，只给起点；做个身强身弱校正才算定。西盘不进身强身弱。'),
@@ -938,7 +984,7 @@ function panel(i, n, title, ...body) {
 function dossier() {
   const o = S.out, r = D.reliability(o), st = ST(), w = o.method.west, d = o.western.data, bz = o.bazi.status === 'ok' ? o.bazi.bazi : null, mb = o.method.bazi, p = o.method.persona, stg = D.stage(o, S.nowY);
   const N = 5, out = [], ansW = Object.fromEntries(D.ANSWERS);
-  out.push(panel(1, N, '出生时间', rows([['钟表时间', r.clock || '不详'], ['真太阳时', r.solar || '—'], ['出生地', r.place ? r.place.name : o.birth.city], r.place ? ['经纬度', `${r.place.lat.toFixed(2)}°N · ${r.place.lon.toFixed(2)}°E`] : null, ['时间来源', r.source], ['精度', r.precision], ['结论', r.head]])));
+  out.push(panel(1, N, '出生时间', rows([['钟表时间', r.clock || '不详'], ['真太阳时', r.solar || '—'], ['出生地', r.place ? r.place.name : o.birth.city], r.place ? ['经纬度', latLon(r.place, 2, ' · ')] : null, ['时间来源', r.source], ['精度', r.precision], ['结论', r.head]])));
   if (d && w && w.big3) out.push(panel(2, N, '本命星盘', wheel(d), rows([['太阳', `${w.big3.sun.sign} ${w.big3.sun.house} 宫`], ['月亮', `${w.big3.moon.sign} ${w.big3.moon.house} 宫`], ['上升', `${w.big3.asc.sign} ${w.big3.asc.deg}°${pad2(w.big3.asc.min)}′`]])));
   if (bz) out.push(panel(3, N, '八字核心', h('div', { class: 'pillars' }, ['year', 'month', 'day', 'hour'].map((k, i) => { const x = bz.pillars[k]; return h('div', { class: 'pl' + (k === 'day' ? ' me' : '') }, h('small', { text: ['年柱', '月柱', '日柱', '时柱'][i] }), h('span', { class: 'gz', text: x ? x.gan : '?' }), h('span', { class: 'gz', text: x ? x.zhi : '?' })); })),
     rows([['日主', `${mb.day_master.gan}${mb.day_master.element} · ${mb.day_master.image}`], st ? ['身强身弱', st.verdict] : null, mb.pattern ? ['格局', mb.pattern.name] : null, stg && stg.luck ? ['当前大运', `${stg.luck.gan_zhi} ${stg.luck.start_year}–${stg.luck.end_year}`] : null])));
@@ -997,12 +1043,12 @@ const FAQ = [
   ]],
   ['时间与坐标', [
     ['出生地坐标从哪里来？', '全国省、市、区三级行政区坐标库（GCJ-02）。只选到市一级时，取该市各区坐标的平均值。占星用途下的坐标误差可忽略。'],
-    ['时区与夏令时如何处理？', '统一按 UTC+8。1986–1991 年中国实行夏令时，按当年起止日 02:00 的边界精确扣除。海外出生暂不支持。'],
+    ['时区与夏令时如何处理？', '中国大陆按 UTC+8，1986–1991 年夏令时按当年起止日 02:00 的边界精确扣除；香港、澳门、台湾按各自时区（那几年没有夏令时）。境外出生在出生地第一格选「境外」，按出生地时区（含当地夏令时）算；人口三万以下的小地方选附近的城市，城市在两个时区交界上的会说明拿不准。'],
     ['星盘与八字为什么用不同的时间？', '星盘按钟表时间与出生地经纬度排；八字按真太阳时（经度时差加均时差）定时柱。两者相差几分钟到几十分钟属正常。'],
     ['出生时间不确定怎么办？', '先看「出生时间可信度」：离时辰交界、上升换座与宫头都远，几分钟误差不改结论；卡在时辰交界上的，可以在验证页用你的经历「定一下时辰」；只知大概时间，建议校时，可申请创始人复核。'],
   ]],
   ['八字口径', [
-    ['年、月以什么为界？', '立春换年，节气换月；23:00 换日线采用晚子时口径，与排盘引擎保持一致。'],
+    ['年、月以什么为界？', '立春换年，节气换月，拿出生那一刻跟节气交接的那一刻比先后（节气交接是全世界同一刻，境外出生也这样比，不按当地钟面）；日柱、时柱按出生地真太阳时，23:00 换日线采用晚子时口径，与排盘引擎保持一致。'],
     ['喜用与格局从哪里来？', '八字分扶抑、调候、格局三派，各按自己整套方法算喜用和每年的顺逆，不拼各派的一半。做个身强身弱校正，对上哪一派就按哪一派说；还没核准时先按一派说，页面上标着。日主意象、格局花名与大运标题取自玄玑生辰页的同一套词库。'],
   ]],
   ['身强身弱 · 怎么算、为什么、怎么复核', [

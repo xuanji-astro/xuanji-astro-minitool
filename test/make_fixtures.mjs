@@ -25,11 +25,17 @@ for (let i = 0; i < 24; i++) {
   const date = i === 9 ? `1988-${pad(mo)}-${pad(d)}` : `${y}-${pad(mo)}-${pad(d)}`;   // 夏令时年份
   cases.push({ date, time, city: CITIES[i], gender: rnd() < 0.5 ? 'female' : 'male', time_source: SRC[i % 4], time_precision: PRE[(i * 3) % 4] });
 }
+// 境外／港澳台（1102jw）：香港 1988 夏（城市名，配香港时区）、洛杉矶冬天和悉尼夏天（页面搜好带 zone＋ll 进来）
+cases.push({ date: '1988-07-01', time: '12:00', city: '香港', gender: 'female', time_source: 'birth_certificate', time_precision: 'minute' });
+cases.push({ date: '2000-12-01', time: '12:00', city: '洛杉矶·加州', zone: 'America/Los_Angeles', ll: '34.0522,-118.2437', gender: 'male', time_source: 'family_clear', time_precision: 'within_15min' });
+// 历法口径（v2_absolute）：洛杉矶 2000-06-05 08:00＝北京 23:00，已过芒种，壬午月（老算法拿当地钟面比是辛巳）
+cases.push({ date: '2000-06-05', time: '08:00', city: '洛杉矶·加州', zone: 'America/Los_Angeles', ll: '34.0522,-118.2437', gender: 'female', time_source: 'birth_certificate', time_precision: 'minute' });
+cases.push({ date: '2000-01-15', time: '13:30', city: '悉尼·澳大利亚', zone: 'Australia/Sydney', ll: '-33.8688,151.2093', gender: 'female', time_source: 'birth_certificate', time_precision: 'minute' });
 const NOW = '2026-10-02T04:00:00.000Z';
 const build = (body) => {
   let inp = parseInput(body); const N = natalOf(inp);
   const hh = inp.h == null ? null : `${pad(inp.h)}:${pad(inp.mi)}`;
-  const call = (city, strength) => { try { return { ok: true, body: JSON.parse(JSON.stringify(paipan({ date: inp.date, time: hh, city, gender: inp.gender, ...(strength ? { strength } : {}) }))) }; } catch (e) { if (e instanceof InputError) return { ok: false, body: { error: { code: e.code, message: e.message } } }; throw e; } };
+  const call = (city, strength) => { try { return { ok: true, body: JSON.parse(JSON.stringify(paipan({ date: inp.date, time: hh, city, gender: inp.gender, ...(strength ? { strength } : {}), calendarRule: inp.calendarRule || 'v2_absolute', ...(inp.place && inp.place.zone ? { zone: inp.place.zone, ll: (+inp.place.lat).toFixed(4) + ',' + (+inp.place.lon).toFixed(4) } : {}) }))) }; } catch (e) { if (e instanceof InputError) return { ok: false, body: { error: { code: e.code, message: e.message } } }; throw e; } };
   const one = (x) => { let r = call(inp.city, x); if (r.body?.error?.code === 'LOCATION_NOT_FOUND' && inp.place?.name && inp.place.name !== inp.city) r = call(inp.place.name, x); return r.ok ? { status: 'ok', ...r.body } : { status: 'error', http: 400, error: r.body.error }; };
   let bz = one(inp.strength);
   // 同 browser/entry.js（＝profile.js withCalib）：身强身弱校正先照没答题的样子排一遍算分，定了就把出过题的纯年按那一边当回答

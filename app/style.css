@@ -529,3 +529,9 @@ body.scrolled::before { opacity: 1; }
 .cal-nav { display: grid; grid-template-columns: 1fr 2fr; gap: 10px; align-items: center; margin-top: 18px; }
 .cal-nav .fe-skip { margin-top: 0; }
 .v > .card.cal-res, .v > .cal-nav { margin-top: 14px; }
+/* 境外出生（1102jw）：省那格＋搜索框一行，候选城市一行一行的小块，下面一行说明 */
+.place.abroad { grid-template-columns: 1fr 2.25fr; }
+.place.abroad .ab-list, .place.abroad .ab-note { grid-column: 1 / -1; }
+.ab-q { padding-right: 12px; font-size: 16px; }
+.ab-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.ab-list .chip small { color: var(--faint); font-size: 12px; }

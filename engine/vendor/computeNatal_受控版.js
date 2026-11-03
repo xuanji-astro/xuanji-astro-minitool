@@ -78,6 +78,24 @@ function cnDstAdjust(y,mo,d,h){
   if(cur===en) return (h!==undefined&&h<2) ? 1 : 0;  // 02:00前仍夏令时
   return 0;
 }
+/* 11-02 境外／港澳台：档案里 zone＝出生地 IANA 时区名，zll＝定这个时区时的经纬度（"纬,经" 四位小数）。
+   经纬度对得上才认 zone（出生地被别的页面改过＝不算数，回北京口径）；认了就按出生那一刻从浏览器时区库算时差（含当地夏令时），不再扣中国 1986–91 夏令时。
+   没 zone 的（国内、老档案）照旧：tz 按北京口径，夏令时按 CN_DST 扣。照见 index.html、星盘 dk/v2/engine/natal.js、mbti_full.html、tianji_personal.js 四份这一段逐字一样。 */
+function zoneOf(inp){
+  if(!inp||!inp.zone||!inp.zll||inp.lat==null||inp.lon==null) return "";
+  const a=String(inp.zll).split(",");
+  return (Math.abs(+a[0]-(+inp.lat))<5e-4&&Math.abs(+a[1]-(+inp.lon))<5e-4)?String(inp.zone):"";
+}
+function zoneTz(zone,y,mo,d,h,mi){
+  const OLD={"Europe/Kyiv":"Europe/Kiev","Pacific/Kanton":"Pacific/Enderbury","America/Nuuk":"America/Godthab","Asia/Yangon":"Asia/Rangoon","Asia/Kolkata":"Asia/Calcutta","Asia/Ho_Chi_Minh":"Asia/Saigon","Asia/Kathmandu":"Asia/Katmandu","Atlantic/Faroe":"Atlantic/Faeroe","Pacific/Chuuk":"Pacific/Truk","Pacific/Pohnpei":"Pacific/Ponape","Asia/Thimphu":"Asia/Thimbu","Asia/Ulaanbaatar":"Asia/Ulan_Bator","Asia/Dhaka":"Asia/Dacca","Asia/Macau":"Asia/Macao","America/Atikokan":"America/Coral_Harbour"};   /* 老手机时区库认不出新名字就换老名字 */
+  try{
+    const fo={timeZone:zone,hourCycle:"h23",year:"numeric",month:"numeric",day:"numeric",hour:"numeric",minute:"numeric"}; let f;
+    try{ f=new Intl.DateTimeFormat("en-US",fo); }catch(e){ if(!OLD[zone]) throw e; fo.timeZone=OLD[zone]; f=new Intl.DateTimeFormat("en-US",fo); }
+    const off=t=>{ const p={}; f.formatToParts(new Date(t)).forEach(x=>{ p[x.type]=x.value; }); return (Date.UTC(+p.year,+p.month-1,+p.day,+p.hour%24,+p.minute)-t)/6e4; };
+    const g=Date.UTC(y,mo-1,d,(h==null?12:h),mi||0); let o=off(g); o=off(g-o*6e4);
+    return (isFinite(o)&&Math.abs(o)<=14*60)?o/60:null;
+  }catch(_){ return null; }
+}
 // 均时差(equation of time, 分钟)。真太阳时与平太阳时之差, 最多约±16分。
 // date为UTC, 用简化级数(对占星度级精度足够)。
 function equationOfTime(date){
@@ -168,7 +186,9 @@ function meanLilith(date){
 // 完整本命盘
 function computeNatal(inp){
   // ① 夏令时修正(1986-91中国): 钟面时间拨快了1h, 减回真实民用时间(影响真实UTC瞬间, 必须做)
-  const dstH=cnDstAdjust(inp.y,inp.mo,inp.d,inp.h);
+  const zn=zoneOf(inp), zt=zn?zoneTz(zn,inp.y,inp.mo,inp.d,inp.h,inp.mi):null;   /* 11-02 境外／港澳台：时差按出生那一刻从时区库算，存回 meta.tz */
+  if(zt!=null) inp.tz=zt;
+  const dstH=zn?0:cnDstAdjust(inp.y,inp.mo,inp.d,inp.h);
   const utc=toUTC(inp.y,inp.mo,inp.d,inp.h-dstH,inp.mi,inp.tz);
   // 注: 现代占星(含主流中文软件)用民用钟表时间直接排盘, 行星位置/上升由真实UTC瞬间决定,
   //     "真太阳时·均时差"不并入计算(那会让行星偏移、反与主流软件不符)。

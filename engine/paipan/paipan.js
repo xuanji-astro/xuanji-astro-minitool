@@ -16,6 +16,7 @@ import { tenGodBar } from './components/tenGodBar.js';
 import { shenshaPanel } from './components/shensha.js';
 import { luckCycles } from './components/luck.js';
 import { liupan, birthTerm, qiyun, monthTable } from './liupan.js';
+import { CALENDAR_RULES, beijingFace, beijingToUtc } from './calendarRule.js';
 
 export const ENGINE = 'mingyu-core@0.3.0';
 const COMMON_SHENSHA = new Set(COMMON_BAZI_SHENSHA_NAMES);
@@ -36,10 +37,29 @@ function resolvePlace(city) {
   return place;
 }
 
+/* 境外／港澳台（1102jw，11-02）：调用方给了出生地时区名 zone（IANA）和经纬度 ll（"纬,经"），就按它们排，不再按城市名查国内地点表；
+   城市名只拿来回显。时区名浏览器／Node 时区库认不出就换老名字，再认不出＝ZONE_INVALID，不悄悄按上海时间排。
+   没给的照旧按城市名查（国内，东八，1986–1991 夏令时由引擎按 Asia/Shanghai 扣）。 */
+const ZONE_OLD = { 'Europe/Kyiv': 'Europe/Kiev', 'Pacific/Kanton': 'Pacific/Enderbury', 'America/Nuuk': 'America/Godthab', 'Asia/Yangon': 'Asia/Rangoon', 'Asia/Kolkata': 'Asia/Calcutta', 'Asia/Ho_Chi_Minh': 'Asia/Saigon', 'Asia/Kathmandu': 'Asia/Katmandu', 'Atlantic/Faroe': 'Atlantic/Faeroe', 'Pacific/Chuuk': 'Pacific/Truk', 'Pacific/Pohnpei': 'Pacific/Ponape', 'Asia/Thimphu': 'Asia/Thimbu', 'Asia/Ulaanbaatar': 'Asia/Ulan_Bator', 'Asia/Dhaka': 'Asia/Dacca', 'Asia/Macau': 'Asia/Macao', 'America/Atikokan': 'America/Coral_Harbour' };
+const zoneUsable = (z) => { try { new Intl.DateTimeFormat('en-US', { timeZone: z }); return true; } catch (_) { return false; } };
+function explicitPlace(city, zone, ll) {
+  const z = String(zone ?? ''), m = String(ll ?? '').match(/^(-?\d{1,2}\.\d{1,6}),(-?\d{1,3}\.\d{1,6})$/);
+  if (!/^[A-Za-z]+(\/[A-Za-z0-9_+-]+){1,2}$/.test(z) || z.length > 40) throw new InputError('ZONE_INVALID', '出生地时区名不对');
+  const tz = zoneUsable(z) ? z : (ZONE_OLD[z] && zoneUsable(ZONE_OLD[z]) ? ZONE_OLD[z] : null);
+  if (!tz) throw new InputError('ZONE_INVALID', '出生地时区认不出来');
+  if (!m) throw new InputError('PLACE_INVALID', '出生地经纬度格式应为 "纬度,经度"');
+  const latitude = +m[1], longitude = +m[2];
+  if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) throw new InputError('PLACE_INVALID', '出生地经纬度超出范围');
+  return { displayName: String(city ?? '').trim().slice(0, 40), latitude, longitude, timeZoneId: tz };
+}
+
 export function parseInput(body) {
   if (!body || typeof body !== 'object') throw new InputError('BAD_REQUEST', '请求体必须是 JSON 对象');
-  const { date, time = null, city, gender, timeMode = 'true_solar', strength = null } = body;
+  const { date, time = null, city, gender, timeMode = 'true_solar', strength = null, zone = null, ll = null } = body;
   if (!TIME_MODES.includes(timeMode)) throw new InputError('TIME_MODE_INVALID', 'timeMode 只能是 true_solar 或 clock');
+  // 历法口径（calendarRule.js）：传了照传的；没传＝给了出生地时区名的按新算法 v2_absolute，只给城市名的（国内老档案、老调用方）按 v1_legacy 逐字照旧
+  const calendarRule = body.calendarRule ?? (zone != null || ll != null ? 'v2_absolute' : 'v1_legacy');
+  if (!CALENDAR_RULES.includes(calendarRule)) throw new InputError('CALENDAR_RULE_INVALID', 'calendarRule 只能是 v1_legacy 或 v2_absolute');
   // 身强身弱的定案（几种判法合判或用户核过的）：喜忌按它取；不传＝照引擎自己的档位
   if (strength !== null && strength !== '强' && strength !== '弱') throw new InputError('STRENGTH_INVALID', 'strength 只能是 强、弱 或不传');
 
@@ -62,7 +82,8 @@ export function parseInput(body) {
   }
   if (typeof city !== 'string' || !city.trim()) throw new InputError('CITY_REQUIRED', '出生城市必填');
 
-  return { year, month, day, hour, minute, gender, timeMode, strength, place: resolvePlace(city.trim()) };
+  const place = zone != null || ll != null ? explicitPlace(city, zone, ll) : resolvePlace(city.trim());
+  return { year, month, day, hour, minute, gender, timeMode, strength, place, calendarRule };
 }
 
 // 时间口径：true_solar＝按出生地经度和均时差校正（默认）；clock＝直接用北京时间（钟表时间，不少排盘软件这样排）
@@ -78,39 +99,58 @@ function offsetAt(tz, utcMs) {
     .formatToParts(new Date(utcMs)).map((x) => [x.type, x.value]));
   return Math.round((Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute) - utcMs) / 60000);
 }
+// 世界时 → 某时区当地钟点
+export function wallIn(tz, utcMs) { const t = new Date(utcMs + offsetAt(tz, utcMs) * 60e3); return { year: t.getUTCFullYear(), month: t.getUTCMonth() + 1, day: t.getUTCDate(), hour: t.getUTCHours(), minute: t.getUTCMinutes() }; }
+/* 1102jw（11-02）：下面三个原来照东八写死（只找东五到东十二区、拿一月当标准时），境外的时区（西半球、南半球、半小时区）会判错；改成对任何时区都成立。
+   东八（Asia/Shanghai）算出来跟原来一样（dst.test.js 照旧过）。 */
+// 这个钟点在这个时区对应哪几个世界时：平常一个；夏令时结束那天重复的一小时两个；开始那天跳过的一小时一个都没有
+function wallUtcs(tz, wall) {
+  const offs = [...new Set([-36, -12, 0, 12, 36].map((h) => offsetAt(tz, wall + h * 3600e3)))];
+  return [...new Set(offs.map((o) => wall - o * 60e3))].filter((u) => u + offsetAt(tz, u) * 60e3 === wall);
+}
+// 标准时的偏移：一月、七月取小的那个（南半球一月是夏令时）
+const standardOffset = (tz, year) => Math.min(offsetAt(tz, Date.UTC(year, 0, 15, 12)), offsetAt(tz, Date.UTC(year, 6, 15, 12)));
+const wallOf = (input) => Date.UTC(input.year, input.month - 1, input.day, input.hour, input.minute ?? 0);
+const tzOf = (input) => input.place?.timeZoneId ?? 'Asia/Shanghai';
 export function standardClock(input) {
   if (input.hour === null) return input;
-  const tz = input.place?.timeZoneId ?? 'Asia/Shanghai';
+  const tz = tzOf(input);
   try {
-    const wall = Date.UTC(input.year, input.month - 1, input.day, input.hour, input.minute ?? 0);
-    const amb = dstAmbiguous(input);
-    const dst = (amb != null ? amb * 60 : offsetAt(tz, wall - offsetAt(tz, wall - 8 * 3600e3) * 60e3)) - offsetAt(tz, Date.UTC(input.year, 0, 15, 4));
+    const wall = wallOf(input), us = wallUtcs(tz, wall);
+    const off = us.length ? Math.max(...us.map((u) => offsetAt(tz, u))) : standardOffset(tz, input.year);   // 重复的一小时按夏令时那一遍；跳过的一小时按标准时
+    const dst = off - standardOffset(tz, input.year);
     if (dst <= 0) return input;
     const t = new Date(wall - dst * 60e3);
     return { ...input, year: t.getUTCFullYear(), month: t.getUTCMonth() + 1, day: t.getUTCDate(), hour: t.getUTCHours(), minute: t.getUTCMinutes() };
   } catch (_) { return input; }   // 时区库查不到就照原样
 }
-// 夏令时结束那天 1 点到 2 点走了两遍（引擎要求给固定偏移才肯排）：按夏令时那一遍（第一遍，钟表还拨快着）排，回 UTC+9
+// 夏令时结束那天重复的一小时（引擎要求给固定偏移才肯排）：按夏令时那一遍（第一遍，钟表还拨快着）排，回那一遍的偏移（小时）
 export function dstAmbiguous(input) {
   if (input.hour === null) return null;
-  const tz = input.place?.timeZoneId ?? 'Asia/Shanghai';
+  const tz = tzOf(input);
   try {
-    const wall = Date.UTC(input.year, input.month - 1, input.day, input.hour, input.minute ?? 0);
-    const hits = [-12, -11, -10, -9, -8, -7, -6, -5].map((h) => wall + h * 3600e3).filter((u) => u + offsetAt(tz, u) * 60e3 === wall).map((u) => offsetAt(tz, u));
-    return hits.length > 1 ? Math.max(...hits) / 60 : null;
+    const us = wallUtcs(tz, wallOf(input));
+    return us.length > 1 ? Math.max(...us.map((u) => offsetAt(tz, u))) / 60 : null;
   } catch (_) { return null; }
 }
-// 夏令时开始那天钟表从 2 点直接拨到 3 点，这一小时里的钟点不存在（引擎会直接报错）：按没拨快的标准时理解，换成同一时刻的夏令钟点
+// 夏令时开始那天跳过的一小时（钟点不存在，引擎会直接报错）：按没拨快的标准时理解，换成同一时刻的夏令钟点
 export function dstGap(input) {
   if (input.hour === null) return null;
-  const tz = input.place?.timeZoneId ?? 'Asia/Shanghai';
+  const tz = tzOf(input);
   try {
-    const wall = Date.UTC(input.year, input.month - 1, input.day, input.hour, input.minute ?? 0);
-    const utc = wall - offsetAt(tz, wall - 8 * 3600e3) * 60e3;
-    if (utc + offsetAt(tz, utc) * 60e3 === wall) return null;
-    const t = new Date(wall - offsetAt(tz, Date.UTC(input.year, 0, 15, 4)) * 60e3 + offsetAt(tz, wall - offsetAt(tz, Date.UTC(input.year, 0, 15, 4)) * 60e3) * 60e3);
+    const wall = wallOf(input);
+    if (wallUtcs(tz, wall).length) return null;
+    const u = wall - standardOffset(tz, input.year) * 60e3, t = new Date(u + offsetAt(tz, u) * 60e3);
     return { ...input, year: t.getUTCFullYear(), month: t.getUTCMonth() + 1, day: t.getUTCDate(), hour: t.getUTCHours(), minute: t.getUTCMinutes() };
   } catch (_) { return null; }
+}
+
+/* v2_absolute：出生那一刻的世界时。钟点按出生地时区换（夏令时结束那天重复的一小时取夏令时那一遍，跟真太阳时那边一致；跳过的一小时调用前已经按标准时挪好）；
+   时辰不详取当地中午那一刻（三柱盘原来也按中午排）。 */
+export function birthUtc(input) {
+  const tz = tzOf(input), wall = Date.UTC(input.year, input.month - 1, input.day, input.hour ?? 12, input.hour === null ? 0 : input.minute ?? 0);
+  const us = wallUtcs(tz, wall);
+  return us.length ? Math.min(...us) : wall - standardOffset(tz, input.year) * 60e3;
 }
 
 function runEngine(input, shenShaScope, mode = input.timeMode, profile = null) {
@@ -122,6 +162,7 @@ function runEngine(input, shenShaScope, mode = input.timeMode, profile = null) {
     isLunar: false,
     shenShaScope,
     ...(profile ? { shenShaVariants: { referenceProfile: profile } } : {}),
+    ...(input.calendarRule === 'v2_absolute' ? { absoluteBeijing: beijingFace(birthUtc(input)) } : {}),   // 年柱月柱、起运、司令按这一刻（calendarRule.js）
   };
   // 时辰不详：走三柱模式，不许默认成午时
   if (input.hour === null) {
@@ -209,8 +250,9 @@ export function paipan(body) {
   // 两种口径的日柱＋时柱对一下：不一样就提示（出生时间离时辰交界近的人，我们跟只用钟表时间的软件会排出不同的时柱）
   let timeCheck = null;
   const warnings = [...(raw.warnings ?? [])];
-  if (dstAmbiguous(input) != null) warnings.push('出生时间落在 1986–1991 年夏令时结束那天走了两遍的一小时里（钟表从 2 点拨回 1 点），按夏令时那一遍排。');
-  if (gapped) warnings.push('出生时间落在 1986–1991 年夏令时开始那天被跳过的一小时里（钟表从 2 点直接拨到 3 点），按没拨快的标准时排。');
+  const cnTz = tzOf(input) === 'Asia/Shanghai';   // 国内照原来的话；境外说「当地夏令时」
+  if (dstAmbiguous(input) != null) warnings.push(cnTz ? '出生时间落在 1986–1991 年夏令时结束那天走了两遍的一小时里（钟表从 2 点拨回 1 点），按夏令时那一遍排。' : '出生时间落在当地夏令时结束那天走了两遍的一小时里，按夏令时那一遍排。');
+  if (gapped) warnings.push(cnTz ? '出生时间落在 1986–1991 年夏令时开始那天被跳过的一小时里（钟表从 2 点直接拨到 3 点），按没拨快的标准时排。' : '出生时间落在当地夏令时开始那天被跳过的一小时里，按没拨快的标准时排。');
   if (timeKnown) {
     const otherMode = input.timeMode === 'clock' ? 'true_solar' : 'clock';
     const other = runEngine(input, 'common', otherMode);
@@ -227,9 +269,17 @@ export function paipan(body) {
     ? { year: t.year, month: t.month, day: t.day, hour: t.hour, minute: t.minute }
     : { year: input.year, month: input.month, day: input.day, hour: input.hour, minute: input.minute };
   const natalGZ = Object.fromEntries(PILLAR_KEYS.map((k) => [k, chart.pillars[k]?.ganZhi ?? null]));
+  // v2_absolute：出生落在哪个节之后、起运岁数都拿出生那一刻的北京钟面去比（节气表是北京时间）；给人看的节气时刻、交运日子再换回出生地当地钟点（境外才换）
+  const v2 = input.calendarRule === 'v2_absolute', abroad = v2 && tzOf(input) !== 'Asia/Shanghai';
+  const bjAt = v2 ? beijingFace(birthUtc(input)) : null;
+  const termAt = v2 ? (timeKnown ? bjAt : { ...bjAt, hour: null, minute: null }) : birthAt;
+  const localDot = (s) => { if (!abroad || !s) return s; const m = s.match(/^(\d{4})\.(\d{2})\.(\d{2}) (\d{2}):(\d{2})$/); if (!m) return s; const t = wallIn(tzOf(input), beijingToUtc({ year: +m[1], month: +m[2], day: +m[3], hour: +m[4], minute: +m[5] })); return `${t.year}.${pad(t.month)}.${pad(t.day)} ${pad(t.hour)}:${pad(t.minute)}`; };
+  const term = birthTerm(termAt);
+  const qy = qiyun(raw, v2 ? bjAt : birthAt);
+  if (qy && abroad) { const [y, mo, d] = qy.date.split('-').map(Number), e = (raw.luckInfo?.cycles ?? []).find((c) => c.isXiaoyun)?.endSolarTime; const t = wallIn(tzOf(input), beijingToUtc(e ?? { year: y, month: mo, day: d, hour: 12 })); qy.date = `${t.year}-${pad(t.month)}-${pad(t.day)}`; }
 
   return {
-    version: { api: 'v1', engine: ENGINE, config: CONFIG_VERSION },
+    version: { api: 'v1', engine: ENGINE, config: CONFIG_VERSION, calendarRule: input.calendarRule },
     input: {
       date: `${entered.year}-${pad(entered.month)}-${pad(entered.day)}`,   // 回显用户填的（夏令时跳过的那一小时也照填的回显）
       time: timeKnown ? `${pad(entered.hour)}:${pad(entered.minute)}` : null,
@@ -239,7 +289,8 @@ export function paipan(body) {
       timeKnown,
       timeMode: input.timeMode,
       trueSolarTime: t ? `${t.year}-${pad(t.month)}-${pad(t.day)} ${pad(t.hour)}:${pad(t.minute)}` : null,
-      birthTerm: birthTerm(birthAt),
+      birthTerm: term && abroad ? { ...term, time: localDot(term.time) } : term,
+      calendarRule: input.calendarRule,   // v1_legacy／v2_absolute：存档时一起记，重开按同一口径
     },
     warnings,
     timeCheck,
@@ -271,9 +322,9 @@ export function paipan(body) {
       },
       // 流盘（生辰历页「流盘」页签）：cols＝六十甲子各自对本命的整列（大运／流年／小运／流月都查它）；years＝出生起一百年的流年＋小运；months＝每年十二个节的月.日＋月干支
       liupan: {
-        qiyun: qiyun(raw, birthAt),
+        qiyun: qy,
         ...liupan({ natal: natalGZ, birthYear: input.year, gender: input.gender }),
-        months: monthTable(input.year - 1, 101),
+        months: monthTable(input.year - 1, 101, abroad ? tzOf(input) : null),   // 境外按出生地当地日子（交节那一刻换成当地钟点）
       },
     },
     components: {

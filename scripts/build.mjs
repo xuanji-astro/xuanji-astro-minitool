@@ -37,6 +37,7 @@ const plugin = {
   setup(b) {
     b.onResolve({ filter: /^(fs|vm|path)$/ }, (a) => ({ path: path.join(B, `shim_${a.path}.js`) }));
     b.onResolve({ filter: /^\.\/engines\.js$/ }, (a) => (a.importer.startsWith(path.join(E, 'src')) ? { path: path.join(B, 'engines.browser.js') } : undefined));
+    b.onResolve({ filter: /^\.\/world\.js$/ }, (a) => (a.importer.startsWith(path.join(E, 'src')) ? { path: path.join(B, 'shim_world.js') } : undefined));   // 1102jw：七万城表不进浏览器包
     b.onResolve({ filter: /^\.\/astronomy\.js$/ }, (a) => (a.importer === path.join(E, 'vendor', 'kp_natal_deep.js') ? { path: path.join(B, 'shim_astronomy.js') } : undefined));   // love_years 用页面上那份 Astronomy
     b.onResolve({ filter: /^xjwrap:/ }, (a) => ({ path: a.path.slice(7), namespace: 'xjwrap' }));
     // Skill 的定时辰脚本：只用它的打分函数；命令行入口、读写本地文件、接口客户端在浏览器里用垫片顶（打分代码一字不改）
@@ -76,6 +77,8 @@ const VENDOR = { 'astronomy.js': 'astronomy.js', 'asteroid-ephem.js': 'asteroid-
 for (const [from, to] of Object.entries(VENDOR)) fs.copyFileSync(path.join(E, 'vendor', from), path.join(OUT, to));
 // 扩展星历（灵神星、爱神星；JPL Horizons 数据，scripts/ephem_ext.py 生成）
 fs.copyFileSync(path.join(E, 'ext', 'asteroid-ephem-ext.js'), path.join(OUT, 'asteroid-ephem-ext.js'));
+// 境外出生（1102jw）：GeoNames 人口三万以上、大陆以外 6600 座城市＋各自时区（OSM 时区边界＋tzdata 核过，交界上的留空），选了「境外」才加载
+fs.writeFileSync(path.join(OUT, 'world.js'), '/* 境外城市：GeoNames cities5000（CC BY 4.0，geonames.org）人口三万以上、中国大陆以外；时区来自 OSM 时区边界（timezone-boundary-builder，ODbL）＋tzdata，城在本国时区交界上的留空 */\nwindow.XJ_WORLD=' + fs.readFileSync(path.join(ROOT, 'app', 'world', 'cities-world.json'), 'utf8').trim() + ';\n');
 // 星历预算表：生成一次要一分钟，有缓存就用缓存（引擎版本变了要删 .cache 重生）
 const EPH = path.join(ROOT, '.cache', 'xj_ephem_1950_2045.js');
 if (!fs.existsSync(EPH)) { const { execFileSync } = await import('child_process'); execFileSync('node', [path.join(ROOT, 'scripts', 'ephem_table.mjs'), '1950', '2045', EPH], { stdio: 'inherit' }); }
