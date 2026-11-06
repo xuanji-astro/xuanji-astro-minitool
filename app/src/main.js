@@ -1020,9 +1020,9 @@ function share() {
       })),
     h('div', { class: 'gap' }),
     ...h2('继续整理这张盘', '结构数据已就绪。按你的使用方式，选择一条继续的路径。'),
-    h('div', { class: 'card route' }, h('div', { class: 'lb', text: 'A · 已经会用 Skill' }), h('p', { text: '在小红书搜索「山玉居士」（小红书号 622843294），于主页帖子获取开源 Skill。安装后将完整结构数据交给你的 AI 助手，继续提问事业、关系、阶段与具体事件。' })),
+    h('div', { class: 'card route' }, h('div', { class: 'lb', text: 'A · 已经会用 Skill' }), h('p', { text: '在小红书搜索「清玄居士」（小红书号 622843294），于主页帖子获取开源 Skill。安装后将完整结构数据交给你的 AI 助手，继续提问事业、关系、阶段与具体事件。' })),
     h('div', { class: 'card route founder' }, h('div', { class: 'lb', text: 'B · 创始人复核' }), reasons.length ? h('h3', { text: '这张盘还有一层值得人工复核' }) : null,
-      h('p', { text: (reasons.length ? reasons.join('；') + '。' : '') + '机器已把结构算清，复杂的取舍由创始人复核。在小红书私信「山玉居士」（小红书号 622843294），发送「深读」与上方结构数据，由创始人代为操作并解读。' })),
+      h('p', { text: (reasons.length ? reasons.join('；') + '。' : '') + '机器已把结构算清，复杂的取舍由创始人复核。在小红书私信「清玄居士」（小红书号 622843294），发送「深读」与上方结构数据，由创始人代为操作并解读。' })),
     h('div', { class: 'card route' }, h('div', { class: 'lb', text: 'C · 存进玄玑档案' }), h('p', { text: '让玄玑记住这是同一个你。网站目前为邀请内测：经由 Skill 存入档案后，本次标注的验证节点会一并保留，作为后续校准的依据。' })),
     h('button', { class: 'linkrow', type: 'button', on: { click: () => go('method') } }, h('div', {}, h('b', { text: '方法与边界' }), h('span', { text: '计算体系、精度与适用范围' })), h('i', { class: 'chev', text: '→' })));
 }
