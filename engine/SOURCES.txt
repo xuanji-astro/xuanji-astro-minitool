@@ -1,5 +1,5 @@
 # 引擎来源（scripts/sync_engine.sh 生成，别手改）
-xuanji-profile-api df6253a
+xuanji-profile-api aaf57bb（11-18 只同步 src/geo.js、src/calib.js：城市名查经纬度改写、强弱平局挑最一致；其余同 df6253a）
 xuanji-paipan      d51ce1b
 mingyu-core        0.3.0
 xuanji-skill        0.1.0-rc.16（scripts/rectify.mjs，提交 40e5101）

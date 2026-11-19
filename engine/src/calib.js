@@ -187,12 +187,14 @@ function leanSet(y, c, cycles) {
 // 强弱定不了的盘没校正时默认给哪套（10-30）：原来按「扶抑→格局→调候」的施工顺序落到格局派，常常是几派里唯一唱反调的那个。
 // 改成：每个五行看几套里多数说喜还是忌（扶抑身强、身弱两套按三种判法各投给哪边加权），跟多数最一致的那一套整套取，不拼半套
 function consensusSet(sets, votes) {
-  const live = sets.filter((c) => !c.doubt); if (!live.length) return null;
   // 判中和的那票有分数的（旺衰打分法），按分数偏哪边算半票：比如 -0.45 是「差一点就偏弱」
   const lean = (v) => (v.side === '强' || v.side === '弱' ? [v.side, 1] : v.side === '中' && Number.isFinite(v.score) && v.score ? [v.score > 0 ? '强' : '弱', 0.5] : [null, 0]);
   let n强 = 0, n弱 = 0; for (const v of votes || []) { const [sd, w] = lean(v); if (sd === '强') n强 += w; else if (sd === '弱') n弱 += w; }
   const tot = Math.max(1, n强 + n弱);
   const wt = (c) => (c.key === '扶抑·强' ? n强 / tot : c.key === '扶抑·弱' ? n弱 / tot : 1);
+  // 11-10：一票都没有的那一边（分量 0）不进候选。原来它也在里面：别的几套五行上正好互相抵消、人人 0 分时，平局按先后取第一个＝「扶抑·强」，
+  // 挑中了没人投的那套（1963-02-17 台南男，排盘引擎判身弱、新派缺时柱不出票，扶抑·弱和格局派五行全相反 → 落到身强、喜火水木）。编的 4000 张盘只变 4 张，都回到票上那一边
+  const live = sets.filter((c) => !c.doubt && wt(c) > 0); if (!live.length) return null;
   const say = (c, e) => (c.fav.includes(e) ? 1 : c.bad.includes(e) ? -1 : 0), maj = {};
   for (const e of '木火土金水') maj[e] = Math.sign(live.reduce((a, c) => a + wt(c) * say(c, e), 0));
   const agree = (c) => [...'木火土金水'].filter((e) => maj[e] && say(c, e) === maj[e]).length * wt(c);
