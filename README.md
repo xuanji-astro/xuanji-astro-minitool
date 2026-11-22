@@ -19,7 +19,7 @@
 | `engine/src/` | 单人盘拼装、应期（八字 v2.1＋西盘行运 v1）、身强投票、出生时间边界、方法层 |
 | `engine/vendor/` | 网站同一套排盘与人格引擎、生辰页词库、旺衰打分法用的第三方代码（MIT，见「许可」） |
 | `engine/paipan/` | 八字排盘（基于 mingyu-core，AGPL-3.0） |
-| `engine/skill/` | 定时辰打分 `rectify.mjs`，原样取自 Xuanji Skill（Apache-2.0，见同目录 `LICENSE`、`NOTICE`） |
+| `engine/skill/` | 时辰交界判断 `rectify.mjs`（第二十次起只用 `candidate`，不再打分），原样取自 Xuanji Skill（Apache-2.0，见同目录 `LICENSE`、`NOTICE`） |
 | `browser/` | 浏览器垫片：服务端用 vm 沙盒加载的文件，打包时原样包进函数 |
 | `app/` | 界面（`src/derive.js` 只做挑和排，`src/main.js` 是六屏） |
 | `scripts/` | `build.mjs` 打包、`ephem_table.mjs` 生成慢星星历表、`font_subset.py` 切宋体子集、`pack.py` 自检并出 zip |
